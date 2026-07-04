@@ -167,6 +167,23 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
     .stTabs [data-baseweb="tab-list"] { overflow-x: auto; flex-wrap: nowrap; }
     /* Tablas y gráficos no se salen de la pantalla */
     [data-testid="stDataFrame"], .stPlotlyChart { width: 100% !important; }
+    /* Tarjetas de resumen (métricas): en celular NO caben 4 en fila y los
+       números se parten feo. Las acomodamos en 2x2 para que cada número quepa
+       completo en su recuadro. Aplica a las tarjetas propias (.sse-metric-card)
+       y a los st.metric nativos. */
+    div[data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]),
+    div[data-testid="stHorizontalBlock"]:has(.sse-metric-card) {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > div[data-testid="stColumn"],
+    div[data-testid="stHorizontalBlock"]:has(.sse-metric-card) > div[data-testid="stColumn"] {
+        flex: 1 1 calc(50% - 8px) !important;
+        min-width: calc(50% - 8px) !important;
+        width: calc(50% - 8px) !important;
+    }
+    /* Número del st.metric un poco más chico para que no se parta */
+    [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
 }
 /* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
 .st-key-dpfix { display: none !important; }

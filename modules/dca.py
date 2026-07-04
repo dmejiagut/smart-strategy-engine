@@ -71,9 +71,9 @@ def _metric_card(label, value, badge="", color="white"):
     badge_bg = "rgba(255,255,255,0.2)" if color == "purple" else "#E8FBF4"
     badge_color = "white" if color == "purple" else "#1D9E75"
     st.markdown(f"""
-    <div style="background:{bg};border-radius:12px;border:0.5px solid #E8ECF4;padding:16px 18px;height:100%;">
+    <div class="sse-metric-card" style="background:{bg};border-radius:12px;border:0.5px solid #E8ECF4;padding:16px 18px;height:100%;">
         <div style="font-size:11px;color:{'rgba(255,255,255,.7)' if color=='purple' else '#9DA5B8'};margin-bottom:6px;">{label}</div>
-        <div style="font-size:22px;font-weight:600;color:{txt};line-height:1.2;">{value}</div>
+        <div style="font-size:20px;font-weight:600;color:{txt};line-height:1.2;">{value}</div>
         {"" if not badge else f'<div style="display:inline-block;background:{badge_bg};color:{badge_color};font-size:11px;border-radius:20px;padding:2px 8px;margin-top:6px;">{badge}</div>'}
     </div>
     """, unsafe_allow_html=True)
