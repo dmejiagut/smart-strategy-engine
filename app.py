@@ -52,8 +52,8 @@ section[data-testid="stSidebar"] { display: none !important; }
 .st-key-bottomnav [data-testid="stHorizontalBlock"] {
     flex-wrap: nowrap !important; gap: 4px !important;
 }
-.st-key-quicktiles [data-testid="column"],
-.st-key-bottomnav [data-testid="column"] {
+.st-key-quicktiles [data-testid="stColumn"],
+.st-key-bottomnav [data-testid="stColumn"] {
     flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;
 }
 
@@ -138,7 +138,7 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
     }
     /* En celular: columnas horizontales que se ENCOGEN para caber (no apiladas ni desbordadas). */
     div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
         min-width: 0 !important; width: auto !important; flex-shrink: 1 !important;
     }
     /* Métricas y títulos más compactos */
