@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from utils import nav
 from utils import db_utils
 from modules.inicio import (render_inicio, render_resultados, render_estrategias,
@@ -167,8 +168,37 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
     /* Tablas y gráficos no se salen de la pantalla */
     [data-testid="stDataFrame"], .stPlotlyChart { width: 100% !important; }
 }
+/* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
+.st-key-dpfix { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# Al elegir un día en el calendario de fecha, ciérralo automáticamente para pasar
+# a la siguiente sección. Streamlit no lo cierra solo cuando el calendario vive
+# dentro de un modal en celular. El calendario se renderiza en un portal fuera del
+# modal, así que un "click fuera" lo cierra sin cerrar el modal. Se inyecta 1 vez.
+with st.container(key="dpfix"):
+    components.html(
+        """
+<script>
+(function(){
+  var w = window.parent, d = w.document;
+  if (w.__sseDatePickerFix) return;   // no duplicar el listener entre reruns
+  w.__sseDatePickerFix = true;
+  d.addEventListener('click', function(e){
+    var day = e.target.closest('[data-baseweb="calendar"] [role="gridcell"]');
+    if (!day || !day.innerText.trim()) return;   // solo días reales, no celdas vacías
+    setTimeout(function(){
+      if (!d.querySelector('[data-baseweb="calendar"]')) return;  // ya se cerró solo
+      d.body.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true}));
+      d.body.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true, cancelable:true}));
+    }, 60);
+  }, true);
+})();
+</script>
+""",
+        height=0,
+    )
 
 # Compuerta de bienvenida: login con Google o invitado + datos básicos.
 # Mientras no haya entrado, mostramos la bienvenida y detenemos el resto.
