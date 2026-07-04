@@ -37,7 +37,10 @@ def render_dividendos():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Acciones que reparten dividendos — analiza, agrega a tu estrategia y registra tus compras</p>
     </div>
     """, unsafe_allow_html=True)
-    tab_buscar, tab_estrategias = st.tabs(["🔍  Buscar acción", "📋  Mis estrategias"])
+    if load_div_strategies():
+        tab_estrategias, tab_buscar = st.tabs(["📋  Mis estrategias", "🔍  Buscar acción"])
+    else:
+        tab_buscar, tab_estrategias = st.tabs(["🔍  Buscar acción", "📋  Mis estrategias"])
     with tab_buscar:
         _tab_buscar()
     with tab_estrategias:

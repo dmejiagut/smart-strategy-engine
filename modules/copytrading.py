@@ -27,7 +27,10 @@ def render_copytrading():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Replica las carteras de los grandes inversionistas del mundo</p>
     </div>
     """, unsafe_allow_html=True)
-    tab_inv, tab_estrategias = st.tabs(["⭐  Inversionistas", "📋  Mis estrategias"])
+    if load_copy_strategies():
+        tab_estrategias, tab_inv = st.tabs(["📋  Mis estrategias", "⭐  Inversionistas"])
+    else:
+        tab_inv, tab_estrategias = st.tabs(["⭐  Inversionistas", "📋  Mis estrategias"])
     with tab_inv:
         _tab_inversionistas()
     with tab_estrategias:

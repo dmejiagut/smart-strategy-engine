@@ -124,15 +124,16 @@ def render_inicio():
         _quick_tile(t2, "🤖", "Analizar", "#E1F5EE", "#0F6E56", "_analizar", "qa_analizar")
         _quick_tile(t3, "📥", "Importar", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
 
-    # ── Próxima compra (la más urgente, como "próximo pago" de un neobank) ──
-    proximas = _proximas_compras()
-    if proximas:
-        p = proximas[0]
+    # ── Compra pendiente HOY o vencida (no se muestra si es a futuro) ──
+    vencidas = [p for p in _proximas_compras() if p["delta"] <= 0]
+    if vencidas:
+        p = vencidas[0]  # la más urgente
         estado, color = _estado_compra_txt(p["delta"])
+        extra = f" · +{len(vencidas) - 1} más" if len(vencidas) > 1 else ""
         with st.container(border=True):
             pc1, pc2 = st.columns([3.4, 1.6])
             pc1.markdown(
-                f"<div style='font-size:12px;color:#9DA5B8;'>Próxima compra</div>"
+                f"<div style='font-size:12px;color:#9DA5B8;'>Compra pendiente{extra}</div>"
                 f"<div style='font-size:14px;'><b style='color:#1a1a2e;'>{esc(p['ticker'])}</b> "
                 f"<span style='color:#9DA5B8;font-size:12px;'>· {p['fecha'].strftime('%d/%m/%Y')}</span> "
                 f"<b style='color:{color};font-size:12.5px;'> {estado}</b></div>",
@@ -350,7 +351,7 @@ def _estado_compra_txt(delta):
     if delta < 0:
         return f"⚠️ {-delta} día(s) de retraso", RED
     if delta == 0:
-        return "📌 ¡Es hoy!", "#C77F00"
+        return "📌 ¡Es hoy, es hoy!", "#C77F00"
     if delta <= 3:
         return f"⏳ En {delta} día(s)", "#C77F00"
     return f"⏳ En {delta} día(s)", PURPLE

@@ -28,9 +28,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 section[data-testid="stSidebar"] { display: none !important; }
 [data-testid="stSidebarCollapsedControl"] { display: none !important; }
 /* Escenario B: la app vive en una columna centrada, como un celular */
-.main .block-container {
+.main .block-container,
+[data-testid="stMainBlockContainer"] {
     background-color: #F4F6FA;
-    padding: 1.5rem 1.4rem 130px;  /* espacio para la barra flotante */
+    padding: 1.2rem 1.4rem 95px !important;  /* top compacto, bottom justo para la barra */
     max-width: 600px;
 }
 
@@ -92,6 +93,14 @@ div[role="dialog"] { border-radius: 18px !important; }
 }
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
+/* Ocultar overlays de Streamlit Cloud (badge del dueño, botón Manage app) que
+   estorban la barra inferior en el celular. */
+[data-testid="stStatusWidget"] { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+[class*="viewerBadge"] { display: none !important; }
+[data-testid="manage-app-button"] { display: none !important; }
+/* Quitar espacio vacío extra al final de la app */
+[data-testid="stAppViewContainer"] > .main { min-height: 0 !important; }
 
 /* Accesos rápidos (tiles cuadrados con ícono) */
 .qa-tile {
@@ -137,8 +146,9 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
 /* ====== RESPONSIVO: ajustes para CELULAR (pantallas <= 640px) ====== */
 @media (max-width: 640px) {
     /* Menos relleno para aprovechar el ancho del teléfono */
-    .main .block-container {
-        padding: 1rem 0.9rem 130px !important;  /* deja espacio a la barra flotante */
+    .main .block-container,
+    [data-testid="stMainBlockContainer"] {
+        padding: 0.8rem 0.9rem 95px !important;  /* top compacto, bottom justo a la barra */
         max-width: 100% !important;
     }
     /* En celular: columnas horizontales que se ENCOGEN para caber (no apiladas ni desbordadas). */

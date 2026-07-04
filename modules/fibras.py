@@ -30,7 +30,10 @@ def render_fibras():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Análisis de Fideicomisos de Inversión en Bienes Raíces mexicanos — todo en pesos (MXN)</p>
     </div>
     """, unsafe_allow_html=True)
-    tab_analisis, tab_estrategias = st.tabs(["🏢  Análisis de FIBRAs", "📋  Mis estrategias"])
+    if load_fibra_strategies():
+        tab_estrategias, tab_analisis = st.tabs(["📋  Mis estrategias", "🏢  Análisis de FIBRAs"])
+    else:
+        tab_analisis, tab_estrategias = st.tabs(["🏢  Análisis de FIBRAs", "📋  Mis estrategias"])
     with tab_analisis:
         _tab_analisis()
     with tab_estrategias:

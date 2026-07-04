@@ -199,7 +199,11 @@ def render_dca():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Compras recurrentes automáticas en títulos completos</p>
     </div>
     """, unsafe_allow_html=True)
-    tab_nueva, tab_estrategias = st.tabs(["➕  Nueva estrategia", "📋  Mis estrategias"])
+    # Si ya tienes estrategias guardadas, abre directo en 'Mis estrategias'
+    if load_strategies():
+        tab_estrategias, tab_nueva = st.tabs(["📋  Mis estrategias", "➕  Nueva estrategia"])
+    else:
+        tab_nueva, tab_estrategias = st.tabs(["➕  Nueva estrategia", "📋  Mis estrategias"])
     with tab_nueva:
         _wizard_dca()
     with tab_estrategias:

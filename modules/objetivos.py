@@ -30,7 +30,10 @@ def render_objetivos():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Análisis técnico — define precio de entrada y salida, y sigue tu meta</p>
     </div>
     """, unsafe_allow_html=True)
-    tab_analisis, tab_estrategias = st.tabs(["📊  Análisis técnico", "📋  Mis estrategias"])
+    if load_obj_strategies():
+        tab_estrategias, tab_analisis = st.tabs(["📋  Mis estrategias", "📊  Análisis técnico"])
+    else:
+        tab_analisis, tab_estrategias = st.tabs(["📊  Análisis técnico", "📋  Mis estrategias"])
     with tab_analisis:
         _tab_analisis()
     with tab_estrategias:
