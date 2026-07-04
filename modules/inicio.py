@@ -17,6 +17,10 @@ PURPLE = "#6C63FF"
 GREEN = "#1D9E75"
 RED = "#A32D2D"
 
+# Versión visible para confirmar qué código está corriendo en la nube.
+# Súbela cada vez que despliegues algo que quieras verificar en el celular.
+APP_VERSION = "v2026.07.04-b"
+
 TARJETAS = [
     {"icono": "📊", "titulo": "DCA", "destino": nav.DCA,
      "desc": "Compras recurrentes automáticas. Invierte poco a poco y reduce el riesgo de elegir el mal momento."},
@@ -94,7 +98,8 @@ def render_inicio():
 
     st.markdown(f"""
     <div style="margin-bottom:14px;">
-        <p style="font-size:13px;color:#9DA5B8;margin:0;">Hola, {nombre} 👋</p>
+        <p style="font-size:13px;color:#9DA5B8;margin:0;">Hola, {nombre} 👋
+            <span style="font-size:10px;color:#C3C9D6;">· {APP_VERSION}</span></p>
         <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:2px 0 0;">Tu portafolio</h2>
     </div>
     """, unsafe_allow_html=True)
