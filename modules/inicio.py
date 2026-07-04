@@ -19,7 +19,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "v2026.07.04-c"
+APP_VERSION = "v2026.07.04-d"
 
 TARJETAS = [
     {"icono": "📊", "titulo": "DCA", "destino": nav.DCA,

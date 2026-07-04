@@ -190,21 +190,50 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
 </style>
 """, unsafe_allow_html=True)
 
-# Al elegir un día en el calendario de fecha, ciérralo automáticamente para pasar
-# a la siguiente sección. Streamlit no lo cierra solo cuando el calendario vive
-# dentro de un modal en celular. El calendario se renderiza en un portal fuera del
-# modal, así que un "click fuera" lo cierra sin cerrar el modal. Se inyecta 1 vez.
+# Ayudas para el calendario de st.date_input (Streamlit no las trae de fábrica):
+#  1) Deshabilita sábados y domingos: los mercados no abren, así que no deben
+#     poder elegirse en ningún calendario de la app.
+#  2) Al elegir un día hábil, cierra el calendario solo para pasar a lo siguiente
+#     (Streamlit no lo cierra dentro de un modal en celular).
+# El calendario vive en un portal fuera del modal, así que el "click fuera" que
+# usamos para cerrarlo no cierra el modal. Se inyecta una sola vez.
 with st.container(key="dpfix"):
     components.html(
         """
 <script>
 (function(){
   var w = window.parent, d = w.document;
-  if (w.__sseDatePickerFix) return;   // no duplicar el listener entre reruns
+  if (w.__sseDatePickerFix) return;   // no duplicar entre reruns
   w.__sseDatePickerFix = true;
+
+  function esFinDeSemana(lbl){
+    return lbl.indexOf('Saturday') !== -1 || lbl.indexOf('Sunday') !== -1;
+  }
+
+  // Bloquea visual y funcionalmente los fines de semana del calendario abierto.
+  function bloquearFinesDeSemana(){
+    var cal = d.querySelector('[data-baseweb="calendar"]');
+    if (!cal) return;
+    var cells = cal.querySelectorAll('[role="gridcell"]');
+    for (var i = 0; i < cells.length; i++){
+      var c = cells[i];
+      if (esFinDeSemana(c.getAttribute('aria-label') || '')){
+        c.style.pointerEvents = 'none';
+        c.style.opacity = '0.28';
+        c.style.cursor = 'not-allowed';
+        c.setAttribute('aria-disabled', 'true');
+      }
+    }
+  }
+
+  // Reaplica cada vez que el calendario aparece o cambia de mes.
+  new MutationObserver(bloquearFinesDeSemana)
+      .observe(d.body, {childList: true, subtree: true});
+
   d.addEventListener('click', function(e){
     var day = e.target.closest('[data-baseweb="calendar"] [role="gridcell"]');
-    if (!day || !day.innerText.trim()) return;   // solo días reales, no celdas vacías
+    if (!day || !day.innerText.trim()) return;                 // solo días reales
+    if (esFinDeSemana(day.getAttribute('aria-label') || '')) return;  // finde: no seleccionar
     setTimeout(function(){
       if (!d.querySelector('[data-baseweb="calendar"]')) return;  // ya se cerró solo
       d.body.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true}));
