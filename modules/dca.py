@@ -32,12 +32,21 @@ ANTICIPACION_OPTS = {
 HORA_OPTS = ["7:00 AM", "9:00 AM", "12:00 PM", "6:00 PM", "8:00 PM"]
 TIPO_CAMBIO_DEFAULT = 17.15
 
+def _dia_habil(d):
+    """Los mercados no abren fines de semana: si cae sábado o domingo,
+    recorre la fecha al siguiente lunes (próximo día que abre el mercado)."""
+    while d.weekday() >= 5:   # 5 = sábado, 6 = domingo
+        d = d + timedelta(days=1)
+    return d
+
 def generar_fechas_dca(fecha_inicio, fecha_fin, frecuencia):
     fechas = []
     cfg = FRECUENCIAS[frecuencia]
     current = fecha_inicio
     while current <= fecha_fin:
-        fechas.append(current)
+        # el "ancla" (current) avanza por la frecuencia elegida, pero la fecha
+        # que se guarda se corre a día hábil para no caer en fin de semana.
+        fechas.append(_dia_habil(current))
         if cfg["meses"] > 0:
             current = current + relativedelta(months=cfg["meses"])
         else:
@@ -546,9 +555,10 @@ def _paso_confirmacion():
     st.plotly_chart(_grafica_dca(df), use_container_width=True, config={"displayModeBar": False})
     st.markdown("</div>", unsafe_allow_html=True)
     cols_show = ["Fecha","Títulos","Precio (MXN)","Total pagado","Títulos acum.","Capital acum."]
+    st.caption(f"Todas tus compras programadas ({len(df)}). Desliza para ver el resto o descárgalas con «Exportar a CSV».")
     st.dataframe(
-        df[cols_show].head(5).style.format({"Precio (MXN)":"${:,.2f}","Total pagado":"${:,.2f}","Capital acum.":"${:,.0f}"}),
-        use_container_width=True, hide_index=True,
+        df[cols_show].style.format({"Precio (MXN)":"${:,.2f}","Total pagado":"${:,.2f}","Capital acum.":"${:,.0f}"}),
+        use_container_width=True, hide_index=True, height=330,
     )
     if cal_on:
         st.success(f"📅 Se crearán **{len(fechas)} eventos** en Google Calendar — {cal_dias} día(s) antes a las {cal_hora}")
