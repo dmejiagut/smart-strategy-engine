@@ -187,6 +187,26 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
 }
 /* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
 .st-key-dpfix { display: none !important; }
+
+/* Tarjeta de estrategia activa (Inicio): TODO el recuadro es clickable.
+   Un botón transparente se estira para cubrir toda la tarjeta. */
+[class*="st-key-card_"] { position: relative !important; cursor: pointer; }
+[class*="st-key-card_"] div[data-testid="stElementContainer"]:has(button) {
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    z-index: 3;
+}
+[class*="st-key-card_"] .stButton,
+[class*="st-key-card_"] .stButton > button {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    opacity: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 

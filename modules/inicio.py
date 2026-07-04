@@ -19,7 +19,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "v2026.07.04-d"
+APP_VERSION = "v2026.07.04-e"
 
 TARJETAS = [
     {"icono": "📊", "titulo": "DCA", "destino": nav.DCA,
@@ -180,23 +180,31 @@ def _estrategias_activas(items):
 
 
 def _fila_estrategia_activa(f, key):
-    """Fila por estrategia activa: ícono + nombre + total + rendimiento."""
+    """Tarjeta por estrategia activa: TODO el recuadro es clickable y lleva a
+    'Mis estrategias' de ese módulo (blanco de toque grande, estilo neobank)."""
     rc = GREEN if f["rend_pct"] >= 0 else RED
     icono = MODULO_ICON.get(f["modulo"], "📊")
     tag = MODULO_TAG.get(f["modulo"], "")
     destino = MODULO_DEST.get(f["modulo"], nav.ESTRATEGIAS)
-    with st.container(border=True):
-        c1, c2 = st.columns([3, 2])
-        if c1.button(f"{icono}  {f['modulo']}", key=f"go_{key}"):
-            nav.goto(destino)
-        c1.markdown(f"<div style='font-size:11px;color:#9DA5B8;margin-top:-6px;'>{tag}</div>",
-                    unsafe_allow_html=True)
-        c2.markdown(
-            f"<div style='text-align:right;'>"
+    with st.container(border=True, key=f"card_{key}"):
+        st.markdown(
+            "<div style='display:flex;align-items:center;justify-content:space-between;'>"
+            "<div>"
+            f"<div style='font-size:15px;font-weight:600;color:#1a1a2e;'>{icono}  {esc(f['modulo'])}</div>"
+            f"<div style='font-size:11px;color:#9DA5B8;margin-top:2px;'>{esc(tag)}</div>"
+            "</div>"
+            "<div style='text-align:right;display:flex;align-items:center;gap:8px;'>"
+            "<div>"
             f"<div style='font-size:14px;font-weight:600;color:#1a1a2e;'>${f['valor']:,.0f}</div>"
             f"<div style='font-size:12px;font-weight:600;color:{rc};'>{f['rend_pct']:+.1f}%</div>"
-            f"</div>",
+            "</div>"
+            "<div style='font-size:18px;color:#C3C9D6;'>›</div>"
+            "</div>"
+            "</div>",
             unsafe_allow_html=True)
+        # Botón transparente que cubre toda la tarjeta (ver CSS .st-key-card_).
+        if st.button("Abrir", key=f"go_{key}", use_container_width=True):
+            nav.goto(destino)
 
 
 def _quick_tile(col, icono, label, bg, fg, destino, key):
