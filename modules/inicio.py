@@ -19,7 +19,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "v2026.07.04-e"
+APP_VERSION = "v2026.07.04-f"
 
 TARJETAS = [
     {"icono": "📊", "titulo": "DCA", "destino": nav.DCA,
@@ -127,7 +127,7 @@ def render_inicio():
         t1, t2, t3 = st.columns(3)
         _quick_tile(t1, "➕", "Nueva estrategia", "#EEEDFE", "#534AB7", nav.ESTRATEGIAS, "qa_nueva")
         _quick_tile(t2, "🤖", "Analizar", "#E1F5EE", "#0F6E56", "_analizar", "qa_analizar")
-        _quick_tile(t3, "📥", "Importar", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
+        _quick_tile(t3, "📥", "Cargar Excel", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
 
     # ── Compra pendiente HOY o vencida (no se muestra si es a futuro) ──
     vencidas = [p for p in _proximas_compras() if p["delta"] <= 0]

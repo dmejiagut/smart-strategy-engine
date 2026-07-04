@@ -9,7 +9,7 @@ from utils.resumen_utils import invalidar_resumen
 def render_importar():
     st.markdown("""
     <div style="margin-bottom:12px;">
-        <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0;">📥 Importar movimientos</h2>
+        <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0;">📥 Cargar desde Excel</h2>
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Carga muchas compras y ventas de una sola vez desde un Excel</p>
     </div>
     """, unsafe_allow_html=True)
