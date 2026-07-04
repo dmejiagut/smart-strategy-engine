@@ -1,0 +1,16 @@
+[server]
+port = 8501
+# Seguridad: límite de subida (el Excel de importación pesa <1 MB; 200 MB por
+# default sería un vector de abuso). La protección XSRF viene activa por default.
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#6C63FF"
+backgroundColor = "#F4F6FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1a1a2e"
+font = "sans serif"

@@ -1,0 +1,69 @@
+============================================================
+   SMART STRATEGY ENGINE  -  Guia rapida para abrir la app
+============================================================
+
+Es un panel de estrategias de inversion hecho en Python.
+Sigue estos pasos UNA SOLA VEZ y despues siempre sera con un clic.
+
+
+------------------------------------------------------------
+PASO 1 - Instalar Python (solo si no lo tienes)
+------------------------------------------------------------
+1. Entra a:  https://www.python.org/downloads/
+2. Descarga el boton grande amarillo ("Download Python").
+3. Abre el instalador y, MUY IMPORTANTE, antes de instalar
+   MARCA la casilla de abajo que dice:
+
+        [x] Add Python to PATH
+
+4. Da clic en "Install Now" y espera a que termine.
+
+
+------------------------------------------------------------
+PASO 2 - Descomprimir esta carpeta
+------------------------------------------------------------
+Si recibiste un archivo .zip, da clic derecho > "Extraer todo".
+Trabaja siempre con la carpeta ya descomprimida.
+
+
+------------------------------------------------------------
+PASO 3 - Abrir la app
+------------------------------------------------------------
+Haz doble clic en el archivo:
+
+        Iniciar_App.bat
+
+- La PRIMERA vez tardara unos minutos (instala todo solo).
+  Veras una ventana negra trabajando: es normal, no la cierres.
+- Cuando termine, se abrira sola la app en tu navegador.
+  Si no abre sola, entra a:  http://localhost:8501
+
+Para cerrar la app: cierra la ventana negra.
+
+
+------------------------------------------------------------
+PASO 4 - Conectar TU Google Calendar (opcional)
+------------------------------------------------------------
+Dentro de la app, en el modulo de estrategias, hay un boton
+para crear recordatorios en Google Calendar.
+
+- Al usarlo por primera vez se abrira una ventana de Google.
+- Inicia sesion con TU cuenta de Google y acepta los permisos.
+- Es posible que Google muestre un aviso de "app no verificada".
+  Es normal (es una app educativa, no esta en la tienda).
+  Da clic en:
+        "Configuracion avanzada"  >  "Ir a Smart Strategy Engine"
+  y luego acepta. Listo, los eventos se crearan en TU calendario.
+
+Tu cuenta de Google queda solo en TU computadora; el creador de
+la app no ve tu informacion.
+
+
+------------------------------------------------------------
+NOTAS
+------------------------------------------------------------
+- Es una herramienta educativa, NO es asesoria financiera.
+- En el menu lateral puedes activar el "Modo Demostracion"
+  para ver la app llena de datos de ejemplo.
+
+============================================================

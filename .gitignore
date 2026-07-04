@@ -1,0 +1,28 @@
+# ===== Llaves y secretos de Google — NUNCA subir =====
+credentials.json
+.token_gcal.json
+.streamlit/secrets.toml
+
+# ===== Entorno virtual de Python (pesado, se reinstala solo) =====
+.venv/
+venv/
+
+# ===== Bases de datos con datos personales =====
+db/*.db
+exports/
+
+# ===== Cachés y temporales de Python =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== Sistema operativo =====
+.DS_Store
+Thumbs.db
+
+# ===== Carpeta interna de Claude =====
+.claude/
+
+# ===== Logs temporales =====
+*.log
+sse_log.txt
