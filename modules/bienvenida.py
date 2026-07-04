@@ -164,6 +164,13 @@ def _fase_datos():
                       captions=[_RIESGO_DESC[r] for r in RIESGOS],
                       index=_idx(RIESGOS, perfil.get("perfil_riesgo")))
 
+    comision = st.number_input(
+        "Comisión de tu casa de bolsa (%)", min_value=0.0, max_value=2.0,
+        value=float(perfil.get("comision_pct") if perfil.get("comision_pct") is not None else 0.25),
+        step=0.05, format="%.2f",
+        help="El % que te cobra tu broker (ej. GBM ≈ 0.25%) por cada compra o venta. "
+             "La app la calcula sola en cada operación; podrás cambiarla luego desde tu perfil.")
+
     if st.button("Empezar", type="primary", use_container_width=True,
                  disabled=not nombre.strip()):
         db_utils.save_perfil({
@@ -171,6 +178,7 @@ def _fase_datos():
             "ingreso_mensual": float(ingreso), "objetivo": objetivo,
             "perfil_riesgo": riesgo, "horizonte_anios": int(horizonte),
         })
+        db_utils.set_comision_pct(comision)
         _entrar_al_dashboard(nombre.strip(), riesgo)
 
     if st.button("← Volver", use_container_width=True):

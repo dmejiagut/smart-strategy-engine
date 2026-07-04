@@ -125,16 +125,10 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
         padding: 1rem 0.9rem 130px !important;  /* deja espacio a la barra flotante */
         max-width: 100% !important;
     }
-    /* Las columnas se apilan una debajo de otra en vez de quedar apretadas */
-    div[data-testid="stHorizontalBlock"] {
-        flex-direction: column !important;
-        gap: 0.5rem !important;
-    }
-    div[data-testid="column"] {
-        width: 100% !important;
-        flex: 1 1 100% !important;
-        min-width: 100% !important;
-    }
+    /* Mantener columnas HORIZONTALES en el celular (tiles, barra inferior, filas),
+       igual que en la web. Solo dejamos que puedan encogerse para que quepan. */
+    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 6px !important; }
+    div[data-testid="column"] { min-width: 0 !important; }
     /* Métricas y títulos más compactos */
     [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
     h1 { font-size: 1.5rem !important; }
