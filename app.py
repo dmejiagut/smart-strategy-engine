@@ -46,6 +46,17 @@ section[data-testid="stSidebar"] { display: none !important; }
     z-index: 999;
 }
 
+/* Accesos rápidos y barra inferior: SIEMPRE en fila, con columnas de ancho parejo
+   (evita que se apilen o se salgan de la pantalla en el celular). */
+.st-key-quicktiles [data-testid="stHorizontalBlock"],
+.st-key-bottomnav [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important; gap: 4px !important;
+}
+.st-key-quicktiles [data-testid="column"],
+.st-key-bottomnav [data-testid="column"] {
+    flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;
+}
+
 /* Inputs y selects redondeados (look neobank) */
 .stTextInput input, .stNumberInput input, .stDateInput input { border-radius: 10px !important; }
 .stSelectbox [data-baseweb="select"] > div { border-radius: 10px !important; }
@@ -125,10 +136,11 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
         padding: 1rem 0.9rem 130px !important;  /* deja espacio a la barra flotante */
         max-width: 100% !important;
     }
-    /* Mantener columnas HORIZONTALES en el celular (tiles, barra inferior, filas),
-       igual que en la web. Solo dejamos que puedan encogerse para que quepan. */
-    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 6px !important; }
-    div[data-testid="column"] { min-width: 0 !important; }
+    /* En celular: columnas horizontales que se ENCOGEN para caber (no apiladas ni desbordadas). */
+    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        min-width: 0 !important; width: auto !important; flex-shrink: 1 !important;
+    }
     /* Métricas y títulos más compactos */
     [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
     h1 { font-size: 1.5rem !important; }

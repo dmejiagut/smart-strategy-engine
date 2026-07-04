@@ -118,10 +118,11 @@ def render_inicio():
     """, unsafe_allow_html=True)
 
     # ── Accesos rápidos (tiles de acción) ──
-    t1, t2, t3 = st.columns(3)
-    _quick_tile(t1, "➕", "Nueva estrategia", "#EEEDFE", "#534AB7", nav.ESTRATEGIAS, "qa_nueva")
-    _quick_tile(t2, "🤖", "Analizar", "#E1F5EE", "#0F6E56", "_analizar", "qa_analizar")
-    _quick_tile(t3, "📥", "Importar", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
+    with st.container(key="quicktiles"):
+        t1, t2, t3 = st.columns(3)
+        _quick_tile(t1, "➕", "Nueva estrategia", "#EEEDFE", "#534AB7", nav.ESTRATEGIAS, "qa_nueva")
+        _quick_tile(t2, "🤖", "Analizar", "#E1F5EE", "#0F6E56", "_analizar", "qa_analizar")
+        _quick_tile(t3, "📥", "Importar", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
 
     # ── Próxima compra (la más urgente, como "próximo pago" de un neobank) ──
     proximas = _proximas_compras()
