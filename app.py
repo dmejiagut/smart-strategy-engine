@@ -125,6 +125,11 @@ div[role="dialog"] { border-radius: 18px !important; }
     color: #6C63FF !important; background: transparent !important;
 }
 
+/* Botones de rango de la gráfica (1A/3A/5A/10A): texto en una sola línea */
+[class*="st-key-obj_zoom_"] button {
+    white-space: nowrap !important; padding-left: 4px !important; padding-right: 4px !important;
+}
+
 /* Barra de navegación inferior */
 .bottom-spacer { height: 8px; }
 div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; padding-top: 8px; }

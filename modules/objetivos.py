@@ -76,32 +76,36 @@ def _tab_analisis():
                     key=f"obj_freq_{ticker}",
                     help="1D = diario · 1S = semanal · 1M = mensual")
     df = resample_ohlc(df, freq)
+    fmin = df["Fecha"].min().date()
+    fmax = df["Fecha"].max().date()
+    di_key = f"obj_di_{ticker}_{freq}"
+    df_key = f"obj_df_{ticker}_{freq}"
+    # Valores por defecto (últimos 10 años); un rango propio por temporalidad (1D/1S/1M)
+    st.session_state.setdefault(di_key, max(fmin, fmax - relativedelta(years=10)))
+    st.session_state.setdefault(df_key, fmax)
+
     with c2:
-        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:11px;color:#9DA5B8;font-weight:600;"
+                    "margin:0 0 2px;'>Ver últimos</div>", unsafe_allow_html=True)
         zc = st.columns(4)
-        fmin = df["Fecha"].min().date()
-        fmax = df["Fecha"].max().date()
-        # Rango propio por temporalidad para que no quede fuera de límites al cambiar 1D/1S/1M
-        rng_key = f"obj_rng_{ticker}_{freq}"
-        if rng_key not in st.session_state:
-            st.session_state[rng_key] = (max(fmin, fmax - relativedelta(years=10)), fmax)
         for i, (lbl, yrs) in enumerate([("1A", 1), ("3A", 3), ("5A", 5), ("10A", 10)]):
             if zc[i].button(lbl, key=f"obj_zoom_{ticker}_{freq}_{lbl}", use_container_width=True):
-                st.session_state[rng_key] = (max(fmin, fmax - relativedelta(years=yrs)), fmax)
+                # Escribimos directo en los date_input para que la gráfica SÍ se mueva
+                st.session_state[di_key] = max(fmin, fmax - relativedelta(years=yrs))
+                st.session_state[df_key] = fmax
+                st.rerun()
 
-    # Limitar el rango guardado dentro de [fmin, fmax] (seguridad al cambiar temporalidad)
-    lo, hi = st.session_state[rng_key]
-    lo = min(max(lo, fmin), fmax)
-    hi = min(max(hi, fmin), fmax)
-    if lo > hi:
-        lo, hi = fmin, fmax
+    # Asegurar que los valores guardados estén dentro de límites
+    if not (fmin <= st.session_state[di_key] <= fmax):
+        st.session_state[di_key] = max(fmin, fmax - relativedelta(years=10))
+    if not (fmin <= st.session_state[df_key] <= fmax):
+        st.session_state[df_key] = fmax
 
     cz1, cz2, cz3 = st.columns([1, 1, 3])
-    d_ini = cz1.date_input("Desde", value=lo, min_value=fmin, max_value=fmax,
-                           key=f"obj_di_{ticker}_{freq}")
-    d_fin = cz2.date_input("Hasta", value=hi, min_value=fmin, max_value=fmax,
-                           key=f"obj_df_{ticker}_{freq}")
-    st.session_state[rng_key] = (d_ini, d_fin)
+    d_ini = cz1.date_input("Desde", min_value=fmin, max_value=fmax, key=di_key)
+    d_fin = cz2.date_input("Hasta", min_value=fmin, max_value=fmax, key=df_key)
+    if d_ini > d_fin:
+        d_ini, d_fin = fmin, fmax
 
     # Herramientas de trading (3 recuadros)
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -254,9 +258,9 @@ def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, sug_ent=None, sug_s
         margin=dict(l=0, r=0, t=30, b=0), height=420,
         title=dict(text=f"Análisis técnico — {ticker}", font=dict(size=13, color="#1a1a2e"), x=0),
         legend=dict(orientation="h", y=1.06, font=dict(size=10, color="#9DA5B8"), bgcolor="rgba(0,0,0,0)"),
-        xaxis=dict(showgrid=False, rangeslider=dict(visible=False), tickfont=dict(size=10, color="#9DA5B8")),
-        yaxis=dict(gridcolor="#F0F2F8", gridwidth=0.5, tickfont=dict(size=10, color="#9DA5B8"), tickprefix="$"),
-        hovermode="x unified",
+        xaxis=dict(showgrid=False, rangeslider=dict(visible=False), fixedrange=True, tickfont=dict(size=10, color="#9DA5B8")),
+        yaxis=dict(gridcolor="#F0F2F8", gridwidth=0.5, fixedrange=True, tickfont=dict(size=10, color="#9DA5B8"), tickprefix="$"),
+        dragmode=False, hovermode="x unified",
     )
     return fig
 
@@ -271,9 +275,9 @@ def _chart_rsi(df):
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=0, r=0, t=24, b=0), height=180,
         title=dict(text="RSI — Índice de Fuerza Relativa", font=dict(size=12, color="#1a1a2e"), x=0),
-        xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#9DA5B8")),
-        yaxis=dict(range=[0, 100], gridcolor="#F0F2F8", tickfont=dict(size=10, color="#9DA5B8")),
-        hovermode="x unified", showlegend=False,
+        xaxis=dict(showgrid=False, fixedrange=True, tickfont=dict(size=10, color="#9DA5B8")),
+        yaxis=dict(range=[0, 100], gridcolor="#F0F2F8", fixedrange=True, tickfont=dict(size=10, color="#9DA5B8")),
+        dragmode=False, hovermode="x unified", showlegend=False,
     )
     return fig
 
