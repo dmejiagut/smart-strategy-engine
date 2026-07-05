@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
 from utils import nav
@@ -12,9 +14,12 @@ from modules.fibras import render_fibras
 from modules.copytrading import render_copytrading
 from modules.bienvenida import necesita_bienvenida, render_bienvenida
 
+# Ícono/favicon de la app: el logo VestPlan (con respaldo a emoji si falta).
+_ICONO = Path(__file__).parent / "assets" / "vestplan_icon.png"
+
 st.set_page_config(
     page_title="VestPlan",
-    page_icon="📈",
+    page_icon=str(_ICONO) if _ICONO.exists() else "📈",
     layout="wide",
     # "auto" = en computadora se muestra el menú lateral abierto,
     # y en celular se colapsa solo en el botón ☰ (mejor para pantallas chicas).
