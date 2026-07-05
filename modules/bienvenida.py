@@ -4,8 +4,13 @@ Actúa como "compuerta": mientras el usuario no haya entrado, la app muestra
 esta pantalla en lugar del dashboard. Una vez completado el perfil, no se
 vuelve a preguntar (y se puede editar luego desde "Mi perfil financiero").
 """
+from pathlib import Path
+
 import streamlit as st
 from utils import db_utils, auth_utils
+
+# Logo oficial (arte del usuario). Si no existe, se usa el SVG de respaldo.
+_LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "vestplan_logo.png"
 
 RIESGOS = ["Conservador", "Moderado", "Agresivo"]
 _RIESGO_DESC = {
@@ -124,14 +129,20 @@ def render_bienvenida():
 
 
 def _fase_login():
-    # Logo + wordmark + titular + subtítulo (estilo VestPlan).
-    # Todo en un solo string sin saltos ni indentación para que Markdown lo trate
-    # como bloque HTML (y no como código).
+    # Logo oficial (imagen) o SVG de respaldo si el archivo no está.
+    if _LOGO_PATH.exists():
+        lc1, lc2, lc3 = st.columns([1, 2, 1])
+        lc2.image(str(_LOGO_PATH), use_container_width=True)
+    else:
+        st.markdown(
+            '<div style="text-align:center;margin:6px 0 0;">' + _LOGO_SVG +
+            '<div style="font-size:32px;font-weight:800;letter-spacing:-.5px;margin-top:6px;">'
+            '<span style="color:#1a1a2e;">Vest</span><span style="color:#6C63FF;">Plan</span></div></div>',
+            unsafe_allow_html=True)
+
+    # Titular + subtítulo (estilo VestPlan)
     st.markdown(
-        '<div style="text-align:center;margin:6px 0 0;">' + _LOGO_SVG +
-        '<div style="font-size:32px;font-weight:800;letter-spacing:-.5px;margin-top:6px;">'
-        '<span style="color:#1a1a2e;">Vest</span><span style="color:#6C63FF;">Plan</span></div></div>'
-        '<div style="text-align:center;margin:20px 0 8px;">'
+        '<div style="text-align:center;margin:14px 0 8px;">'
         '<div style="font-size:26px;font-weight:800;line-height:1.15;color:#1a1a2e;">Invierte con un plan.</div>'
         '<div style="font-size:26px;font-weight:800;line-height:1.15;color:#6C63FF;">No con emociones.</div></div>'
         '<div style="text-align:center;font-size:14px;color:#7B8494;margin:0 0 28px;">'

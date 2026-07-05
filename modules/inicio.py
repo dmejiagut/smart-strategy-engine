@@ -22,7 +22,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v4"
+APP_VERSION = "VestPlan · v5"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
