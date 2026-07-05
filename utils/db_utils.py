@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 DB_DIR = Path(__file__).parent.parent / "db"
@@ -77,6 +77,11 @@ def init_db():
     # % de comisión de la casa de bolsa (se guarda en el perfil)
     try:
         conn.execute("ALTER TABLE perfil ADD COLUMN comision_pct REAL DEFAULT 0.25")
+    except Exception:
+        pass  # columna ya existe
+    # Meta anual de rendimiento (%) que el usuario quiere alcanzar
+    try:
+        conn.execute("ALTER TABLE perfil ADD COLUMN meta_anual REAL DEFAULT 20")
     except Exception:
         pass  # columna ya existe
     # ── Dividendos ──
@@ -219,6 +224,15 @@ def init_db():
             creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
+    # ── Histórico diario del patrimonio (para la gráfica de evolución) ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS historial_patrimonio (
+            fecha TEXT PRIMARY KEY,          -- un snapshot por día (YYYY-MM-DD)
+            invertido REAL NOT NULL,
+            valor REAL NOT NULL,
+            creado_en TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -240,6 +254,44 @@ def set_comision_pct(pct: float):
         "ON CONFLICT(id) DO UPDATE SET comision_pct = ?", (float(pct), float(pct)))
     conn.commit()
     conn.close()
+
+
+def set_meta_anual(pct: float):
+    """Guarda la meta anual de rendimiento (%) del usuario."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO perfil (id, meta_anual) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET meta_anual = ?", (float(pct), float(pct)))
+    conn.commit()
+    conn.close()
+
+
+# ── Histórico diario del patrimonio ────────────────────────────────────────────
+
+def guardar_snapshot_patrimonio(invertido: float, valor: float):
+    """Guarda (o actualiza) el valor del portafolio de HOY. Una fila por día,
+    así que llamarla muchas veces al día no genera basura ni pesa."""
+    init_db()
+    conn = _get_conn()
+    hoy = date.today().isoformat()
+    conn.execute(
+        "INSERT INTO historial_patrimonio (fecha, invertido, valor) VALUES (?, ?, ?) "
+        "ON CONFLICT(fecha) DO UPDATE SET invertido = excluded.invertido, "
+        "valor = excluded.valor", (hoy, float(invertido), float(valor)))
+    conn.commit()
+    conn.close()
+
+
+def leer_historial_patrimonio() -> list[dict]:
+    """Devuelve el histórico diario ordenado por fecha (ascendente)."""
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT fecha, invertido, valor FROM historial_patrimonio ORDER BY fecha ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def save_perfil(data: dict):

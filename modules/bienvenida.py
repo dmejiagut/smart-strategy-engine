@@ -106,7 +106,7 @@ def render_bienvenida():
 
 def _fase_login():
     st.markdown('<div class="bienv-logo">📈</div>', unsafe_allow_html=True)
-    st.markdown('<p class="bienv-title">Smart Strategy Engine</p>', unsafe_allow_html=True)
+    st.markdown('<p class="bienv-title">VestPlan</p>', unsafe_allow_html=True)
     st.markdown('<p class="bienv-sub">Invierte con estrategias claras, '
                 'aunque no sepas nada de finanzas.</p>', unsafe_allow_html=True)
 

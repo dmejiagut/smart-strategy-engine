@@ -13,7 +13,7 @@ from modules.copytrading import render_copytrading
 from modules.bienvenida import necesita_bienvenida, render_bienvenida
 
 st.set_page_config(
-    page_title="Smart Strategy Engine",
+    page_title="VestPlan",
     page_icon="📈",
     layout="wide",
     # "auto" = en computadora se muestra el menú lateral abierto,
@@ -187,6 +187,32 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
 }
 /* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
 .st-key-dpfix { display: none !important; }
+
+/* Tarjeta de patrimonio (oscura, con degradado morado tipo VestPlan) */
+.st-key-patricard {
+    background: linear-gradient(135deg, #2D1B8F 0%, #24126A 100%) !important;
+    border-radius: 18px !important;
+    padding: 16px 18px !important;
+    margin-bottom: 14px !important;
+    box-shadow: 0 8px 24px rgba(45,27,143,.18);
+}
+/* Selector de periodo (1M/3M/6M/1A/Todo): pastillas translúcidas dentro de la tarjeta */
+.st-key-patricard .stButton > button {
+    background: rgba(255,255,255,.10) !important;
+    color: rgba(255,255,255,.85) !important;
+    border: none !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    padding: 4px 0 !important;
+    min-height: 0 !important;
+    border-radius: 8px !important;
+}
+.st-key-patricard .stButton > button:hover {
+    background: rgba(255,255,255,.22) !important;
+    color: #fff !important;
+}
+/* Menos separación entre los elementos internos de la tarjeta */
+.st-key-patricard [data-testid="stHorizontalBlock"] { gap: 6px !important; }
 
 /* Tarjeta de estrategia activa (Inicio): TODO el recuadro es clickable.
    Un botón transparente se estira para cubrir toda la tarjeta. */
