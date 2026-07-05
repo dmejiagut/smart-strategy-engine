@@ -74,22 +74,41 @@ def _entrar_al_dashboard(nombre: str, riesgo: str):
     st.rerun()
 
 
+# Logo VestPlan: una "V" trazada que sube y remata en flecha (degradado azul→morado).
+# En una sola línea a propósito: si tiene saltos/indentación, Markdown lo trata como
+# bloque de código y muestra el HTML de alrededor como texto crudo.
+_LOGO_SVG = (
+    '<svg width="78" height="78" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    '<defs><linearGradient id="vpg" x1="15" y1="100" x2="108" y2="18" gradientUnits="userSpaceOnUse">'
+    '<stop stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>'
+    '<path d="M22 32 L56 92 L100 22" stroke="url(#vpg)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<path d="M100 22 L78 25 M100 22 L97 45" stroke="url(#vpg)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</svg>'
+)
+
+
 def _css():
     st.markdown("""
     <style>
     section[data-testid="stSidebar"] { display: none !important; }
-    .main .block-container { max-width: 460px !important; padding-top: 2.5rem; }
-    .bienv-logo {
-        width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 16px;
-        background: #EEEDFE; color: #534AB7;
-        display: flex; align-items: center; justify-content: center; font-size: 30px;
-    }
-    .bienv-title { text-align: center; font-size: 20px; font-weight: 600; margin: 0; }
+    .main .block-container { max-width: 460px !important; padding-top: 2rem; }
     .bienv-sub { text-align: center; font-size: 14px; color: #7B8494; margin: 8px 0 28px; }
+    /* Botón de Google: blanco, con borde y el logo de Google */
+    .st-key-btn_google_login button {
+        background: #fff !important; border: 1px solid #E2E6EE !important;
+        color: #1a1a2e !important; font-weight: 600 !important;
+        border-radius: 12px !important; padding: 12px !important;
+    }
     .st-key-btn_google_login button::before {
         content: ""; display: inline-block;
         width: 18px; height: 18px; margin-right: 10px; vertical-align: -4px;
         background: url('""" + _GOOGLE_LOGO + """') no-repeat center / contain;
+    }
+    /* Botón secundario 'Crear mi cuenta': contorno morado */
+    .st-key-btn_crear button {
+        background: #fff !important; border: 1.5px solid #6C63FF !important;
+        color: #6C63FF !important; font-weight: 700 !important;
+        border-radius: 12px !important; padding: 12px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -105,10 +124,19 @@ def render_bienvenida():
 
 
 def _fase_login():
-    st.markdown('<div class="bienv-logo">📈</div>', unsafe_allow_html=True)
-    st.markdown('<p class="bienv-title">VestPlan</p>', unsafe_allow_html=True)
-    st.markdown('<p class="bienv-sub"><b>Invierte con un plan. No con emociones.</b><br>'
-                'Estrategias claras, aunque no sepas nada de finanzas.</p>', unsafe_allow_html=True)
+    # Logo + wordmark + titular + subtítulo (estilo VestPlan).
+    # Todo en un solo string sin saltos ni indentación para que Markdown lo trate
+    # como bloque HTML (y no como código).
+    st.markdown(
+        '<div style="text-align:center;margin:6px 0 0;">' + _LOGO_SVG +
+        '<div style="font-size:32px;font-weight:800;letter-spacing:-.5px;margin-top:6px;">'
+        '<span style="color:#1a1a2e;">Vest</span><span style="color:#6C63FF;">Plan</span></div></div>'
+        '<div style="text-align:center;margin:20px 0 8px;">'
+        '<div style="font-size:26px;font-weight:800;line-height:1.15;color:#1a1a2e;">Invierte con un plan.</div>'
+        '<div style="font-size:26px;font-weight:800;line-height:1.15;color:#6C63FF;">No con emociones.</div></div>'
+        '<div style="text-align:center;font-size:14px;color:#7B8494;margin:0 0 28px;">'
+        'Estrategias claras. Decisiones inteligentes.<br>Patrimonio a largo plazo.</div>',
+        unsafe_allow_html=True)
 
     if st.button("Continuar con Google", key="btn_google_login", use_container_width=True):
         with st.spinner("Abriendo Google en tu navegador..."):
@@ -126,11 +154,17 @@ def _fase_login():
                 st.session_state["_fase_bienv"] = "datos"
                 st.rerun()
 
-    if st.button("Entrar sin iniciar sesión", use_container_width=True):
+    if st.button("Crear mi cuenta", key="btn_crear", use_container_width=True):
         st.session_state["_fase_bienv"] = "datos"
         st.rerun()
 
-    st.caption("Con Google también conectas tu calendario para recordatorios.")
+    st.markdown("""
+    <div style="text-align:center;font-size:11px;color:#9DA5B8;margin-top:24px;line-height:1.5;">
+        🛡️ <b style="color:#7B8494;">Tus datos están protegidos.</b><br>
+        Nunca compartimos tu información.</div>
+    <div style="text-align:center;font-size:11px;color:#C3C9D6;margin-top:8px;">
+        Con Google también conectas tu calendario para recordatorios.</div>
+    """, unsafe_allow_html=True)
 
 
 def _fase_datos():
