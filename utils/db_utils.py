@@ -79,9 +79,14 @@ def init_db():
         conn.execute("ALTER TABLE perfil ADD COLUMN comision_pct REAL DEFAULT 0.25")
     except Exception:
         pass  # columna ya existe
-    # Meta anual de rendimiento (%) que el usuario quiere alcanzar
+    # Meta anual de rendimiento (%) que el usuario quiere alcanzar (heredado)
     try:
         conn.execute("ALTER TABLE perfil ADD COLUMN meta_anual REAL DEFAULT 20")
+    except Exception:
+        pass  # columna ya existe
+    # Meta anual de AHORRO/INVERSIÓN (monto en MXN que busca invertir en el año)
+    try:
+        conn.execute("ALTER TABLE perfil ADD COLUMN meta_monto REAL DEFAULT 0")
     except Exception:
         pass  # columna ya existe
     # ── Dividendos ──
@@ -263,6 +268,17 @@ def set_meta_anual(pct: float):
     conn.execute(
         "INSERT INTO perfil (id, meta_anual) VALUES (1, ?) "
         "ON CONFLICT(id) DO UPDATE SET meta_anual = ?", (float(pct), float(pct)))
+    conn.commit()
+    conn.close()
+
+
+def set_meta_monto(monto: float):
+    """Guarda la meta anual de inversión (monto en MXN que el usuario busca invertir en el año)."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO perfil (id, meta_monto) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET meta_monto = ?", (float(monto), float(monto)))
     conn.commit()
     conn.close()
 

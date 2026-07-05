@@ -107,8 +107,8 @@ def render_bienvenida():
 def _fase_login():
     st.markdown('<div class="bienv-logo">📈</div>', unsafe_allow_html=True)
     st.markdown('<p class="bienv-title">VestPlan</p>', unsafe_allow_html=True)
-    st.markdown('<p class="bienv-sub">Invierte con estrategias claras, '
-                'aunque no sepas nada de finanzas.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="bienv-sub"><b>Invierte con un plan. No con emociones.</b><br>'
+                'Estrategias claras, aunque no sepas nada de finanzas.</p>', unsafe_allow_html=True)
 
     if st.button("Continuar con Google", key="btn_google_login", use_container_width=True):
         with st.spinner("Abriendo Google en tu navegador..."):

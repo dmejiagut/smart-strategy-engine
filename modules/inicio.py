@@ -7,8 +7,8 @@ import plotly.graph_objects as go
 from utils import nav
 from utils.db_utils import (get_perfil, save_perfil, get_modo, load_strategies,
                             load_historial_realizado, set_comision_pct, set_meta_anual,
-                            guardar_snapshot_patrimonio, leer_historial_patrimonio)
-from utils.resumen_utils import resumen_global, invalidar_resumen
+                            set_meta_monto, guardar_snapshot_patrimonio, leer_historial_patrimonio)
+from utils.resumen_utils import resumen_global, invalidar_resumen, invertido_en_anio
 import streamlit.components.v1 as components
 from modules.resultados_export import export_excel, export_pdf, exportar_json, cartera_payload
 from utils.revisor_utils import generar_html
@@ -22,7 +22,28 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v1"
+APP_VERSION = "VestPlan · v2"
+
+ESLOGAN = "Invierte con un plan. No con emociones."
+
+# Frases que refuerzan la filosofía de VestPlan (una distinta por cada apertura).
+FRASES_FILOSOFIA = [
+    "Invierte con un plan. No con emociones.",
+    "La disciplina vence a la improvisación.",
+    "Las mejores inversiones empiezan con una estrategia.",
+    "El tiempo recompensa la constancia.",
+    "No adivines el mercado. Sigue tu plan.",
+    "La paciencia también genera rendimientos.",
+    "Una estrategia vale más que una corazonada.",
+]
+
+
+def _frase_filosofia():
+    """Una frase por apertura de la app (fija durante la sesión, cambia al reabrir)."""
+    import random
+    if "_frase_idx" not in st.session_state:
+        st.session_state["_frase_idx"] = random.randrange(len(FRASES_FILOSOFIA))
+    return FRASES_FILOSOFIA[st.session_state["_frase_idx"]]
 
 TARJETAS = [
     {"icono": "📊", "titulo": "DCA", "destino": nav.DCA,
@@ -111,16 +132,26 @@ def render_inicio():
         st.session_state["_snap_dia"] = date.today().isoformat()
     hist = leer_historial_patrimonio()
 
-    # ── Header: marca VestPlan + estado de sincronización + saludo ──
+    vencidas = [p for p in _proximas_compras() if p["delta"] <= 0]
+
+    # ── Header: marca + campanita (pendientes) + avatar (perfil) ──
+    with st.container(key="topbar"):
+        hL, hB, hA = st.columns([6, 1.1, 1.1])
+        hL.markdown(f"""
+            <div style="font-size:22px;font-weight:700;letter-spacing:-.3px;color:#1a1a2e;line-height:1.05;">
+                <span style="color:{PURPLE};">Vest</span>Plan</div>
+            <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
+                <span style="color:{GREEN};">●</span> Sincronizado · precios al momento</div>
+        """, unsafe_allow_html=True)
+        if hB.button(f"🔔 {len(vencidas)}" if vencidas else "🔔", key="tb_bell", help="Pendientes"):
+            nav.goto(nav.AGENDA)
+        inicial = (perfil.get("nombre") or "U").strip()[:1].upper() or "U"
+        if hA.button(inicial, key="tb_perfil", help="Tu perfil"):
+            nav.goto(nav.PERFIL)
+
     st.markdown(f"""
-    <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div style="font-size:22px;font-weight:700;letter-spacing:-.3px;color:#1a1a2e;">
-            <span style="color:{PURPLE};">Vest</span>Plan</div>
-        <div style="font-size:10px;color:#C3C9D6;">{APP_VERSION}</div>
-    </div>
-    <div style="font-size:11px;color:#9DA5B8;margin:2px 0 12px;">
-        <span style="color:{GREEN};">●</span> Sincronizado · precios al momento</div>
-    <div style="font-size:22px;font-weight:700;color:#1a1a2e;margin-bottom:12px;">Hola, {nombre} 👋</div>
+        <div style="font-size:22px;font-weight:700;color:#1a1a2e;margin:10px 0 2px;">Hola, {nombre} 👋</div>
+        <div style="font-size:11px;color:#9DA5B8;margin-bottom:12px;font-style:italic;">{esc(ESLOGAN)} · {APP_VERSION}</div>
     """, unsafe_allow_html=True)
 
     if get_modo() == "demo":
@@ -131,21 +162,13 @@ def render_inicio():
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Mensaje del copiloto (estado + mejor estrategia) ──
-    _mensaje_estado(res, items)
+    # ── Mensaje del copiloto (frase distinta por apertura + estado real) ──
+    _mensaje_estado(res, items, vencidas)
 
     # ── Tarjeta de patrimonio (oscura, con gráfica de evolución y KPIs) ──
     _tarjeta_patrimonio(res, rend, hist)
 
-    # ── Accesos rápidos (se moverán al botón central "+" de la barra) ──
-    with st.container(key="quicktiles"):
-        t1, t2, t3 = st.columns(3)
-        _quick_tile(t1, "➕", "Nueva estrategia", "#EEEDFE", "#534AB7", nav.ESTRATEGIAS, "qa_nueva")
-        _quick_tile(t2, "🤖", "Analizar", "#E1F5EE", "#0F6E56", "_analizar", "qa_analizar")
-        _quick_tile(t3, "📥", "Cargar Excel", "#FAEEDA", "#854F0B", nav.IMPORTAR, "qa_importar")
-
-    # ── Pendientes: solo compras de HOY o vencidas ──
-    vencidas = [p for p in _proximas_compras() if p["delta"] <= 0]
+    # ── Pendientes: SOLO compras de HOY o vencidas (nunca a futuro) ──
     if vencidas:
         p = vencidas[0]  # la más urgente
         estado, color = _estado_compra_txt(p["delta"])
@@ -164,8 +187,8 @@ def render_inicio():
             if pc2.button("Ver agenda →", key="ini_agenda", use_container_width=True):
                 nav.goto(nav.AGENDA)
 
-    # ── Meta anual ──
-    _tarjeta_meta_anual(perfil, rend)
+    # ── Meta anual de inversión (monto) ──
+    _tarjeta_meta_anual(perfil)
 
     # ── Mis estrategias (top 3 + ver todas) ──
     st.markdown(
@@ -185,26 +208,40 @@ def render_inicio():
                     _fila_estrategia_activa(f, key=f"act_{i}")
 
 
-def _mensaje_estado(res, items):
-    """Línea de 'copiloto' con estado del plan y la mejor estrategia (dato real)."""
-    if not items:
-        txt, dot = "Aún no empiezas. Crea tu primera estrategia y da el primer paso. 🚀", PURPLE
-    elif res["total_rend_pct"] >= 0:
-        txt, dot = "Todo va conforme a tu plan.", GREEN
+def _mensaje_estado(res, items, vencidas):
+    """Copiloto de VestPlan: primero el ESTADO del plan, luego (opcional) el detalle.
+    La filosofía va antes que los números. Cambia según la situación real."""
+    frase = _frase_filosofia()
+    if vencidas:
+        # Hay algo que hacer HOY: la app pide una acción concreta.
+        dot = "#EF9F27"
+        titulo = "Hoy tu plan necesita una acción."
+        mas = f" (+{len(vencidas) - 1} más)" if len(vencidas) > 1 else ""
+        detalle = f"Comprar <b style='color:#1a1a2e;'>{esc(vencidas[0]['ticker'])}</b>.{mas}"
+    elif not items:
+        dot = PURPLE
+        titulo = "Empieza tu plan hoy."
+        detalle = esc(frase)
     else:
-        txt, dot = "Tu plan va en marcha. La constancia es lo que rinde. 💪", "#EF9F27"
-    extra = ""
-    activas = _estrategias_activas(items) if items else []
-    if activas:
-        mejor = max(activas, key=lambda x: x["rend_pct"])
-        if mejor["rend_pct"] > 0:
-            extra = (f"<div style='font-size:11px;color:#9DA5B8;margin-top:3px;'>🏆 Tu mejor estrategia: "
-                     f"<b style='color:#1a1a2e;'>{esc(mejor['modulo'])}</b> ({mejor['rend_pct']:+.1f}%)</div>")
+        # Todo en orden: reforzamos disciplina + frase de filosofía (rota por apertura).
+        dot = GREEN
+        titulo = "Todo va conforme a tu plan."
+        activas = _estrategias_activas(items)
+        mejor = max(activas, key=lambda x: x["rend_pct"]) if activas else None
+        if mejor and mejor["rend_pct"] > 0 and st.session_state.get("_frase_idx", 0) % 2 == 0:
+            detalle = (f"🏆 Tu mejor estrategia: <b style='color:#1a1a2e;'>{esc(mejor['modulo'])}</b> "
+                       f"({mejor['rend_pct']:+.1f}%)")
+        else:
+            detalle = esc(frase)
     st.markdown(f"""
     <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:12px 14px;
-                margin-bottom:14px;box-shadow:0 1px 3px rgba(16,24,40,.04);">
-        <div style="font-size:13px;color:#1a1a2e;"><span style="color:{dot};">●</span> <b>{txt}</b></div>
-        {extra}
+                margin-bottom:14px;box-shadow:0 1px 3px rgba(16,24,40,.04);
+                display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+            <div style="font-size:13.5px;color:#1a1a2e;"><span style="color:{dot};">●</span> <b>{titulo}</b></div>
+            <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">{detalle}</div>
+        </div>
+        <div style="font-size:18px;color:#C3C9D6;">›</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -270,19 +307,32 @@ def _grafica_patrimonio(hist, dias):
     return fig
 
 
-def _tarjeta_meta_anual(perfil, rend):
-    """Barra de progreso hacia la meta anual de rendimiento (dato real vs meta del perfil)."""
-    meta = float(perfil.get("meta_anual") or 20)
-    progreso = max(0.0, rend)  # el avance es tu rendimiento actual (no cuenta lo negativo)
-    pct = min(100.0, (progreso / meta * 100) if meta else 0)
-    falta = max(0.0, meta - progreso)
+def _tarjeta_meta_anual(perfil):
+    """Barra de progreso de la meta anual de INVERSIÓN (cuánto has invertido este
+    año vs cuánto te propusiste). Premia la disciplina, no la suerte del mercado."""
+    anio = date.today().year
+    meta = float(perfil.get("meta_monto") or 0)
+    if meta <= 0:
+        # Aún no define su meta → invitación a ponerla en Perfil.
+        st.markdown("""
+        <div style="background:#F7F6FF;border:1px dashed #D4CFFF;border-radius:14px;padding:14px 16px;margin:2px 0 16px;">
+            <div style="font-size:13px;font-weight:600;color:#1a1a2e;">🎯 Ponte una meta anual</div>
+            <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
+                Define cuánto quieres invertir este año en <b>Perfil</b> y sigue tu avance aquí.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+    invertido = invertido_en_anio(anio)
+    pct = min(100.0, (invertido / meta * 100) if meta else 0)
+    falta = max(0.0, meta - invertido)
     st.markdown(f"""
     <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:14px 16px;margin:2px 0 16px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
-            <div style="font-size:13px;font-weight:600;color:#1a1a2e;">Meta anual {date.today().year}</div>
-            <div style="font-size:16px;font-weight:700;color:{PURPLE};">{meta:.0f}%</div>
+            <div style="font-size:13px;font-weight:600;color:#1a1a2e;">Tu meta anual {anio}</div>
+            <div style="font-size:16px;font-weight:700;color:{PURPLE};">${meta:,.0f}</div>
         </div>
-        <div style="font-size:11px;color:#9DA5B8;margin:6px 0;">Llevas {progreso:.1f}% · te faltan {falta:.1f}% para tu meta</div>
+        <div style="font-size:11px;color:#9DA5B8;margin:6px 0;">
+            Llevas ${invertido:,.0f} ({pct:.0f}%) · te faltan ${falta:,.0f} para tu meta</div>
         <div style="background:#EDEBFB;border-radius:20px;height:8px;overflow:hidden;">
             <div style="background:{PURPLE};height:8px;width:{pct:.0f}%;border-radius:20px;"></div>
         </div>
@@ -574,17 +624,18 @@ def render_perfil():
             help="El % que te cobra tu broker (ej. GBM ≈ 0.25%) por cada compra o venta. La app la "
                  "calcula sola en cada operación (con IVA). Si la cambias, aplica de aquí en adelante; "
                  "no recalcula lo que ya registraste.")
-        meta_anual = st.number_input(
-            "Meta anual de rendimiento (%)", min_value=1.0, max_value=100.0,
-            value=float(perfil.get("meta_anual") if perfil.get("meta_anual") is not None else 20),
-            step=1.0, format="%.0f",
-            help="El rendimiento que te gustaría alcanzar este año. Se usa en la barra de "
-                 "'Meta anual' de tu pantalla de Inicio.")
+        meta_monto = st.number_input(
+            "Meta anual de inversión (MXN) — ¿cuánto buscas invertir al año?",
+            min_value=0.0, value=float(perfil.get("meta_monto") or 0),
+            step=1000.0, format="%.0f",
+            help="Cuánto dinero quieres invertir a lo largo del año. La barra de 'Meta anual' "
+                 "en Inicio se llena con lo que ya llevas invertido este año. Déjalo en 0 si aún "
+                 "no quieres fijar una meta.")
         if st.form_submit_button("💾 Guardar perfil", type="primary"):
             save_perfil({"nombre": nombre, "edad": edad, "ingreso_mensual": ingreso,
                          "objetivo": objetivo, "perfil_riesgo": riesgo, "horizonte_anios": horizonte})
             set_comision_pct(comision)
-            set_meta_anual(meta_anual)
+            set_meta_monto(meta_monto)
             st.success("✅ Perfil actualizado.")
             st.rerun()
 
@@ -635,6 +686,9 @@ def render_resultados():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Resumen de todas tus estrategias — inversión y rendimiento en pesos</p>
     </div>
     """, unsafe_allow_html=True)
+
+    if st.button("📥 Cargar Excel — importar tus compras y ventas", key="res_importar", use_container_width=True):
+        nav.goto(nav.IMPORTAR)
 
     res = resumen_global()
     items = res["items"]

@@ -188,6 +188,20 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
 /* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
 .st-key-dpfix { display: none !important; }
 
+/* Header superior de Inicio: campanita (pendientes) + avatar (perfil) */
+.st-key-topbar [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 2px !important; }
+.st-key-tb_bell button {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    font-size: 15px !important; padding: 2px !important; min-height: 0 !important; color: #64748B !important;
+}
+.st-key-tb_perfil button {
+    background: linear-gradient(135deg, #7B6CF5, #5A4FD1) !important;
+    color: #fff !important; border: none !important; box-shadow: none !important;
+    border-radius: 50% !important; width: 38px !important; height: 38px !important;
+    min-height: 0 !important; padding: 0 !important; font-weight: 700 !important;
+    font-size: 15px !important; margin-left: auto !important;
+}
+
 /* Tarjeta de patrimonio (oscura, con degradado morado tipo VestPlan) */
 .st-key-patricard {
     background: linear-gradient(135deg, #2D1B8F 0%, #24126A 100%) !important;

@@ -123,6 +123,37 @@ def _prewarm_precios():
         get_precios_varios(tickers)
 
 
+@st.cache_data(ttl=300)
+def invertido_en_anio(anio: int) -> float:
+    """Suma, en MXN, todo lo invertido (compras) cuya fecha cae en el año dado.
+    Se usa para el progreso de la meta anual de inversión."""
+    y = str(anio)
+    fx = get_tipo_cambio_actual()
+
+    def _sum(estrategias, load_p):
+        s = 0.0
+        for e in estrategias:
+            for c in load_p(e["id"]):
+                f = c.get("fecha")
+                if f and str(f)[:4] == y:
+                    s += c["titulos"] * c["precio"] + (c.get("comision") or 0)
+        return s
+
+    total = 0.0
+    total += _sum(load_strategies(), load_purchases)          # DCA (MXN)
+    total += _sum(load_div_strategies(), load_div_purchases)  # Dividendos (MXN)
+    total += _sum(load_obj_strategies(), load_obj_purchases)  # Objetivos (MXN)
+    total += _sum(load_fibra_strategies(), load_fibra_purchases)  # FIBRAs (MXN)
+    for e in load_copy_strategies():                          # Copy Trading (USD→MXN)
+        for cp in load_copy_purchases(e["id"]):
+            f = cp.get("fecha")
+            if f and str(f)[:4] == y:
+                tc = cp.get("tipo_cambio") or fx
+                for d in cp["detalle"]:
+                    total += d["titulos"] * d["precio_usd"] * tc
+    return total
+
+
 @st.cache_data(ttl=300, show_spinner="Calculando tus resultados...")
 def resumen_global() -> dict:
     _prewarm_precios()  # una sola petición para todos los precios (luego cada uno lee de la base)
