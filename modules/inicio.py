@@ -22,7 +22,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v2"
+APP_VERSION = "VestPlan · v3"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -176,16 +176,12 @@ def render_inicio():
         st.markdown("<div style='font-size:15px;font-weight:600;color:#1a1a2e;margin:2px 0 6px;'>Pendientes</div>",
                     unsafe_allow_html=True)
         with st.container(border=True):
-            pc1, pc2 = st.columns([3.4, 1.6])
-            pc1.markdown(
+            st.markdown(
                 f"<div style='font-size:12px;color:#9DA5B8;'>Compra pendiente{extra}</div>"
                 f"<div style='font-size:14px;'><b style='color:#1a1a2e;'>{esc(p['ticker'])}</b> "
                 f"<span style='color:#9DA5B8;font-size:12px;'>· {p['fecha'].strftime('%d/%m/%Y')}</span> "
                 f"<b style='color:{color};font-size:12.5px;'> {estado}</b></div>",
                 unsafe_allow_html=True)
-            pc2.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            if pc2.button("Ver agenda →", key="ini_agenda", use_container_width=True):
-                nav.goto(nav.AGENDA)
 
     # ── Meta anual de inversión (monto) ──
     _tarjeta_meta_anual(perfil)
