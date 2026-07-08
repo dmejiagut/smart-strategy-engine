@@ -102,6 +102,7 @@ def invalidar_resumen():
     """Recalcula solo el resumen (tras registrar compras/ventas o cambiar de modo),
     sin tirar la caché de precios de mercado — así la app sigue rápida."""
     resumen_global.clear()
+    invertido_en_anio.clear()   # la barra de meta anual también debe refrescarse
 
 
 def _prewarm_precios():
