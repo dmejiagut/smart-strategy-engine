@@ -96,25 +96,41 @@ def _css():
     st.markdown("""
     <style>
     section[data-testid="stSidebar"] { display: none !important; }
-    .main .block-container { max-width: 460px !important; padding-top: 2rem; }
-    .bienv-sub { text-align: center; font-size: 14px; color: #7B8494; margin: 8px 0 28px; }
-    /* Botón de Google: blanco, con borde y el logo de Google */
+    /* Fondo moderno: glow morado sutil arriba + degradado lavanda muy claro */
+    [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(900px 460px at 50% -90px, rgba(124,58,237,.16), transparent 60%),
+            linear-gradient(180deg, #FBFAFF 0%, #F3F1FF 100%) !important;
+    }
+    .main .block-container {
+        max-width: 430px !important; padding-top: 2.4rem !important; background: transparent !important;
+    }
+    /* Botón PRIMARIO 'Crear mi cuenta': gradiente morado, elevado */
+    .st-key-btn_crear button {
+        background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%) !important;
+        color: #fff !important; border: none !important; font-weight: 700 !important;
+        border-radius: 16px !important; padding: 15px !important; font-size: 15px !important;
+        box-shadow: 0 12px 26px rgba(99,63,231,.34) !important;
+        transition: transform .05s ease, filter .15s ease !important;
+    }
+    .st-key-btn_crear button:hover { filter: brightness(1.06) !important; }
+    .st-key-btn_crear button:active { transform: translateY(1px) !important; }
+    /* Botón Google: blanco, elevado, con el logo */
     .st-key-btn_google_login button {
-        background: #fff !important; border: 1px solid #E2E6EE !important;
+        background: #fff !important; border: 1px solid #EAE7F5 !important;
         color: #1a1a2e !important; font-weight: 600 !important;
-        border-radius: 12px !important; padding: 12px !important;
+        border-radius: 16px !important; padding: 14px !important; font-size: 15px !important;
+        box-shadow: 0 3px 12px rgba(16,24,40,.06) !important;
     }
     .st-key-btn_google_login button::before {
         content: ""; display: inline-block;
         width: 18px; height: 18px; margin-right: 10px; vertical-align: -4px;
         background: url('""" + _GOOGLE_LOGO + """') no-repeat center / contain;
     }
-    /* Botón secundario 'Crear mi cuenta': contorno morado */
-    .st-key-btn_crear button {
-        background: #fff !important; border: 1.5px solid #6C63FF !important;
-        color: #6C63FF !important; font-weight: 700 !important;
-        border-radius: 12px !important; padding: 12px !important;
-    }
+    /* Divisor 'o' entre las dos opciones */
+    .bienv-or { display: flex; align-items: center; gap: 12px; margin: 16px 2px; }
+    .bienv-or::before, .bienv-or::after { content: ""; flex: 1; height: 1px; background: #E4E0F0; }
+    .bienv-or span { font-size: 12px; color: #A9A2C4; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -149,6 +165,14 @@ def _fase_login():
         'Estrategias claras. Decisiones inteligentes.<br>Patrimonio a largo plazo.</div>',
         unsafe_allow_html=True)
 
+    # Acción primaria: crear tu cuenta/perfil.
+    if st.button("Crear mi cuenta", key="btn_crear", use_container_width=True):
+        st.session_state["_fase_bienv"] = "datos"
+        st.rerun()
+
+    st.markdown('<div class="bienv-or"><span>o</span></div>', unsafe_allow_html=True)
+
+    # Acción secundaria: continuar con Google (también conecta el calendario).
     if st.button("Continuar con Google", key="btn_google_login", use_container_width=True):
         with st.spinner("Abriendo Google en tu navegador..."):
             info = auth_utils.login_google()
@@ -165,15 +189,16 @@ def _fase_login():
                 st.session_state["_fase_bienv"] = "datos"
                 st.rerun()
 
-    if st.button("Crear mi cuenta", key="btn_crear", use_container_width=True):
-        st.session_state["_fase_bienv"] = "datos"
-        st.rerun()
-
     st.markdown("""
-    <div style="text-align:center;font-size:11px;color:#9DA5B8;margin-top:24px;line-height:1.5;">
-        🛡️ <b style="color:#7B8494;">Tus datos están protegidos.</b><br>
+    <div style="display:flex;align-items:center;justify-content:center;gap:7px;margin-top:26px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6C63FF"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span style="font-size:12px;color:#7B8494;"><b>Tus datos están protegidos.</b></span>
+    </div>
+    <div style="text-align:center;font-size:11px;color:#A9A2C4;margin-top:4px;">
         Nunca compartimos tu información.</div>
-    <div style="text-align:center;font-size:11px;color:#C3C9D6;margin-top:8px;">
+    <div style="text-align:center;font-size:11px;color:#C3C9D6;margin-top:10px;">
         Con Google también conectas tu calendario para recordatorios.</div>
     """, unsafe_allow_html=True)
 
