@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v14"
+APP_VERSION = "VestPlan · v15"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -293,11 +293,8 @@ def render_inicio():
                 f"<b style='color:{color};font-size:12.5px;'> {estado}</b></div>",
                 unsafe_allow_html=True)
 
-    # ── Meta anual de inversión (monto) ──
+    # ── Meta anual de inversión (toca la tarjeta para ver tu ahorro mes a mes) ──
     _tarjeta_meta_anual(perfil)
-
-    # ── Resumen del mes pasado (invertido + rendimiento del mes) ──
-    _tarjeta_resumen_mensual(hist)
 
     # ── Mis estrategias (top 3 + ver todas) ──
     st.markdown(
@@ -429,66 +426,96 @@ def _grafica_patrimonio(hist, dias):
 
 
 def _tarjeta_meta_anual(perfil):
-    """Barra de progreso de la meta anual de INVERSIÓN (cuánto has invertido este
-    año vs cuánto te propusiste). Premia la disciplina, no la suerte del mercado."""
+    """Barra de progreso de la meta anual de INVERSIÓN. Toda la tarjeta es
+    clickable: abre el detalle de tu ahorro por mes y por año."""
     anio = date.today().year
     meta = float(perfil.get("meta_monto") or 0)
-    if meta <= 0:
-        # Aún no define su meta → invitación a ponerla en Perfil.
-        st.markdown("""
-        <div style="background:#F7F6FF;border:1px dashed #D4CFFF;border-radius:14px;padding:14px 16px;margin:2px 0 16px;">
-            <div style="font-size:13px;font-weight:600;color:#1a1a2e;">🎯 Ponte una meta anual</div>
-            <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
-                Define cuánto quieres invertir este año en <b>Perfil</b> y sigue tu avance aquí.</div>
-        </div>
-        """, unsafe_allow_html=True)
+    with st.container(key="card_meta"):
+        if meta <= 0:
+            # Aún no define su meta → invitación (también abre el detalle al tocar).
+            st.markdown("""
+            <div style="background:#F7F6FF;border:1px dashed #D4CFFF;border-radius:14px;padding:14px 16px;">
+                <div style="font-size:13px;font-weight:600;color:#1a1a2e;">🎯 Ponte una meta anual</div>
+                <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
+                    Define cuánto quieres invertir este año en <b>Perfil</b>. Toca aquí para ver tu ahorro.</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            invertido = invertido_en_anio(anio)
+            pct = min(100.0, (invertido / meta * 100) if meta else 0)
+            falta = max(0.0, meta - invertido)
+            st.markdown(f"""
+            <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:14px 16px;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                    <div style="font-size:13px;font-weight:600;color:#1a1a2e;">Tu meta anual {anio}</div>
+                    <div style="font-size:16px;font-weight:700;color:{PURPLE};">${meta:,.0f} <span style="color:#C3C9D6;font-weight:400;">›</span></div>
+                </div>
+                <div style="font-size:11px;color:#9DA5B8;margin:6px 0;">
+                    Llevas ${invertido:,.0f} ({pct:.0f}%) · te faltan ${falta:,.0f} · toca para ver tu ahorro</div>
+                <div style="background:#EDEBFB;border-radius:20px;height:8px;overflow:hidden;">
+                    <div style="background:{PURPLE};height:8px;width:{pct:.0f}%;border-radius:20px;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        # Botón invisible que cubre la tarjeta (CSS .st-key-card_) → abre el detalle.
+        if st.button("Ver mi ahorro", key="meta_detalle", use_container_width=True):
+            _dialog_ahorro(perfil)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+
+_MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
+                 "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+
+
+@st.dialog("💰 Tu ahorro invertido")
+def _dialog_ahorro(perfil):
+    """Detalle del dinero que has metido a invertir: por mes (año actual) y por año."""
+    from utils.resumen_utils import aportaciones_por_mes
+    ap = aportaciones_por_mes()
+    if not ap:
+        st.info("Aún no registras compras. Cuando lo hagas, aquí verás tu ahorro mes a mes.")
         return
-    invertido = invertido_en_anio(anio)
-    pct = min(100.0, (invertido / meta * 100) if meta else 0)
-    falta = max(0.0, meta - invertido)
-    st.markdown(f"""
-    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:14px 16px;margin:2px 0 16px;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;">
-            <div style="font-size:13px;font-weight:600;color:#1a1a2e;">Tu meta anual {anio}</div>
-            <div style="font-size:16px;font-weight:700;color:{PURPLE};">${meta:,.0f}</div>
-        </div>
-        <div style="font-size:11px;color:#9DA5B8;margin:6px 0;">
-            Llevas ${invertido:,.0f} ({pct:.0f}%) · te faltan ${falta:,.0f} para tu meta</div>
-        <div style="background:#EDEBFB;border-radius:20px;height:8px;overflow:hidden;">
-            <div style="background:{PURPLE};height:8px;width:{pct:.0f}%;border-radius:20px;"></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    anio = date.today().year
 
+    # Barras por mes del año actual
+    vals = [ap.get(f"{anio:04d}-{m:02d}", 0.0) for m in range(1, 13)]
+    st.markdown(f"<div style='font-size:13px;font-weight:700;color:#1a1a2e;'>"
+                f"Aportaciones por mes · {anio}</div>", unsafe_allow_html=True)
+    fig = go.Figure(go.Bar(x=_MESES_CORTOS, y=vals, marker_color=PURPLE,
+                           hovertemplate="%{x}: $%{y:,.0f} MXN<extra></extra>"))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=6, b=0), height=200, showlegend=False, dragmode=False,
+        xaxis=dict(showgrid=False, fixedrange=True, tickfont=dict(size=10, color="#9DA5B8")),
+        yaxis=dict(gridcolor="#F0F2F8", fixedrange=True, tickprefix="$",
+                   tickfont=dict(size=10, color="#9DA5B8")))
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-
-
-def _tarjeta_resumen_mensual(hist):
-    """Resumen del mes pasado: cuánto invertiste y cómo se movió tu portafolio.
-    Solo aparece si hay algo que contar (invertiste o hay histórico del mes)."""
-    from utils.resumen_utils import invertido_en_mes
-    hoy = date.today()
-    anio, mes = (hoy.year, hoy.month - 1) if hoy.month > 1 else (hoy.year - 1, 12)
-    ym = f"{anio:04d}-{mes:02d}"
-    invertido = invertido_en_mes(anio, mes)
-    puntos = [h["valor"] for h in hist if h["fecha"][:7] == ym]
-    pct = ((puntos[-1] / puntos[0] - 1) * 100) if len(puntos) >= 2 and puntos[0] else None
-    if invertido <= 0 and pct is None:
-        return
-    partes = []
-    if invertido > 0:
-        partes.append(f"invertiste <b style='color:#1a1a2e;'>${invertido:,.0f}</b>")
-    if pct is not None:
-        pc = GREEN if pct >= 0 else RED
-        partes.append(f"tu portafolio se movió <b style='color:{pc};'>{pct:+.1f}%</b>")
-    st.markdown(f"""
-    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:12px 16px;margin:2px 0 16px;">
-        <div style="font-size:13px;font-weight:600;color:#1a1a2e;">📊 Tu {_MESES[mes - 1]}</div>
-        <div style="font-size:12px;color:#4A5066;margin-top:3px;">En {_MESES[mes - 1]} {" y ".join(partes)}.</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Totales por año + total histórico
+    anios = {}
+    for ym, v in ap.items():
+        anios[ym[:4]] = anios.get(ym[:4], 0.0) + v
+    st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-top:4px;'>"
+                "Por año</div>", unsafe_allow_html=True)
+    for a in sorted(anios, reverse=True):
+        pct_meta = ""
+        meta = float(perfil.get("meta_monto") or 0)
+        if meta > 0 and int(a) == anio:
+            pct_meta = (f" <span style='color:{PURPLE};font-weight:600;'>"
+                        f"({anios[a] / meta * 100:.0f}% de tu meta)</span>")
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;padding:7px 0;"
+            f"border-bottom:1px solid #F0F2F8;font-size:13.5px;'>"
+            f"<span style='color:#4A5066;'>{a}</span>"
+            f"<span style='font-weight:700;color:#1a1a2e;'>${anios[a]:,.0f}{pct_meta}</span></div>",
+            unsafe_allow_html=True)
+    total = sum(anios.values())
+    st.markdown(
+        f"<div style='display:flex;justify-content:space-between;padding:9px 0;font-size:14px;'>"
+        f"<span style='font-weight:700;color:#1a1a2e;'>Total histórico</span>"
+        f"<span style='font-weight:800;color:{GREEN};'>${total:,.0f} MXN</span></div>",
+        unsafe_allow_html=True)
+    st.caption("💪 Cada peso que aportas es tu disciplina trabajando. Sigue así.")
 
 
 def _estrategias_activas(items):

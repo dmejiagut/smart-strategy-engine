@@ -102,8 +102,8 @@ def invalidar_resumen():
     """Recalcula solo el resumen (tras registrar compras/ventas o cambiar de modo),
     sin tirar la caché de precios de mercado — así la app sigue rápida."""
     resumen_global.clear()
-    invertido_en_anio.clear()   # la barra de meta anual también debe refrescarse
-    invertido_en_mes.clear()    # y el resumen mensual
+    invertido_en_anio.clear()     # la barra de meta anual también debe refrescarse
+    aportaciones_por_mes.clear()  # y el detalle de ahorro por mes/año
 
 
 def _prewarm_precios():
@@ -126,32 +126,32 @@ def _prewarm_precios():
 
 
 @st.cache_data(ttl=300)
-def invertido_en_mes(anio: int, mes: int) -> float:
-    """Suma, en MXN, lo invertido (compras) en un mes dado. Para el resumen mensual."""
-    ym = f"{anio:04d}-{mes:02d}"
+def aportaciones_por_mes() -> dict:
+    """Todo lo invertido (compras de TODOS los módulos), agrupado por mes:
+    {'YYYY-MM': monto MXN}. Alimenta el detalle de ahorro de la meta anual."""
     fx = get_tipo_cambio_actual()
+    meses: dict = {}
+
+    def _add(fecha, monto):
+        ym = str(fecha or "")[:7]
+        if len(ym) == 7:
+            meses[ym] = meses.get(ym, 0.0) + monto
 
     def _sum(estrategias, load_p):
-        s = 0.0
         for e in estrategias:
             for c in load_p(e["id"]):
-                f = str(c.get("fecha") or "")
-                if f[:7] == ym:
-                    s += c["titulos"] * c["precio"] + (c.get("comision") or 0)
-        return s
+                _add(c.get("fecha"), c["titulos"] * c["precio"] + (c.get("comision") or 0))
 
-    total = 0.0
-    total += _sum(load_strategies(), load_purchases)
-    total += _sum(load_div_strategies(), load_div_purchases)
-    total += _sum(load_obj_strategies(), load_obj_purchases)
-    total += _sum(load_fibra_strategies(), load_fibra_purchases)
+    _sum(load_strategies(), load_purchases)
+    _sum(load_div_strategies(), load_div_purchases)
+    _sum(load_obj_strategies(), load_obj_purchases)
+    _sum(load_fibra_strategies(), load_fibra_purchases)
     for e in load_copy_strategies():
         for cp in load_copy_purchases(e["id"]):
-            if str(cp.get("fecha") or "")[:7] == ym:
-                tc = cp.get("tipo_cambio") or fx
-                for d in cp["detalle"]:
-                    total += d["titulos"] * d["precio_usd"] * tc
-    return total
+            tc = cp.get("tipo_cambio") or fx
+            _add(cp.get("fecha"),
+                 sum(d["titulos"] * d["precio_usd"] * tc for d in cp["detalle"]))
+    return meses
 
 
 @st.cache_data(ttl=300)
