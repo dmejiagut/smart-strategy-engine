@@ -13,6 +13,7 @@ _TABLAS = [
     "ventas_objetivos", "compras_objetivos", "estrategias_objetivos",
     "compras_fibras", "estrategias_fibras",
     "detalle_copy", "compras_copy", "estrategias_copy",
+    "ventas_cerradas", "historial_patrimonio",
     "perfil",
 ]
 
@@ -76,4 +77,57 @@ def generar_datos_demo():
         {"ticker": "BAC", "titulos": 8, "precio_usd": 49.5},
         {"ticker": "KO", "titulos": 5, "precio_usd": 81.0},
     ])
+
+    # Meta de ahorro anual + casa de bolsa (para que el perfil se vea completo)
+    db.set_meta_monto(120000.0)
+    db.set_casa_bolsa("GBM")
+
+    # Ventas realizadas → alimentan la pestaña "Rendimiento realizado"
+    #   MSFT (Por Objetivos): la venta de arriba, también en el historial permanente.
+    db.log_venta_cerrada("Por Objetivos", obj_id, "MSFT", hoy - timedelta(days=10),
+                         1, 8050.0, 40.25, costo_base=6917.25, tipo_cambio=TC)
+    #   AAPL (DCA): una venta parcial con ganancia.
+    try:
+        db.registrar_venta("DCA", dca_id, "AAPL", hoy - timedelta(days=5),
+                           1, 5150.0, comision=25.75, tipo_cambio=TC)
+    except Exception:
+        pass
+
+    # Histórico diario del patrimonio → la gráfica de Inicio sale llena
+    _seed_historial(hoy)
     return True
+
+
+def _seed_historial(hoy):
+    """Rellena ~120 días de valor de portafolio (ficticio, tendencia al alza y con
+    ruido) para que la gráfica de Inicio y 'ganancia hoy' se vean funcionando."""
+    import random
+    try:
+        from utils.resumen_utils import resumen_global, invalidar_resumen
+        invalidar_resumen()
+        res = resumen_global()
+        inv_total = float(res.get("total_invertido") or 0.0)
+        val_hoy = float(res.get("total_valor") or 0.0)
+    except Exception:
+        inv_total, val_hoy = 100000.0, 108000.0
+    if val_hoy <= 0:
+        val_hoy = (inv_total or 100000.0) * 1.08
+    if inv_total <= 0:
+        inv_total = val_hoy * 0.92
+
+    rng = random.Random(7)
+    n = 120
+    start = inv_total * 0.90
+    conn = db._get_conn()
+    for i in range(n, 0, -1):                 # i = días atrás (120 … 1 = ayer)
+        f = hoy - timedelta(days=i)
+        frac = (n - i) / (n - 1)              # 0 (más viejo) … 1 (ayer)
+        base = start + (val_hoy - start) * frac
+        valor = base * (1 + rng.uniform(-0.015, 0.02))     # leve sesgo al alza
+        invertido = inv_total * min(1.0, 0.35 + 0.65 * frac)
+        conn.execute(
+            "INSERT INTO historial_patrimonio (fecha, invertido, valor) VALUES (?, ?, ?) "
+            "ON CONFLICT(fecha) DO UPDATE SET invertido=excluded.invertido, valor=excluded.valor",
+            (f.isoformat(), float(invertido), float(valor)))
+    conn.commit()
+    conn.close()
