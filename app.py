@@ -343,8 +343,9 @@ def _barra_inferior(activo):
     """Barra de navegación inferior FLOTANTE (fija abajo, como app nativa)."""
     grupo = nav.ESTRATEGIAS if activo in nav.MODULOS_ESTRATEGIA else activo
     with st.container(key="bottomnav"):
-        cols = st.columns(4)
-        for col, destino in zip(cols, [nav.INICIO, nav.ESTRATEGIAS, nav.RESULTADOS, nav.PERFIL]):
+        # Perfil ya NO va aquí: se llega por el avatar (arriba a la derecha).
+        cols = st.columns(3)
+        for col, destino in zip(cols, [nav.INICIO, nav.ESTRATEGIAS, nav.RESULTADOS]):
             es_activo = (grupo == destino)
             color = "#6C63FF" if es_activo else "#7B8494"
             col.markdown(
