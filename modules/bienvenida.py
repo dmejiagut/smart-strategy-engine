@@ -230,6 +230,13 @@ def _fase_datos():
     objetivo = st.selectbox("¿Cuál es tu objetivo principal?", OBJETIVOS,
                             index=_idx(OBJETIVOS, perfil.get("objetivo")))
 
+    meta_monto = st.number_input(
+        "Meta de ahorro anual (MXN)", min_value=0.0,
+        value=float(perfil.get("meta_monto") or 0), step=1000.0, format="%.0f",
+        help="¿Cuánto quieres invertir/ahorrar a lo largo de este año? En tu pantalla de "
+             "Inicio verás una barra que se llena con lo que ya llevas invertido. "
+             "Puedes dejarlo en 0 y ponerlo después desde tu perfil.")
+
     riesgo = st.radio("¿Cuál es tu perfil de riesgo?", RIESGOS,
                       captions=[_RIESGO_DESC[r] for r in RIESGOS],
                       index=_idx(RIESGOS, perfil.get("perfil_riesgo")))
@@ -249,6 +256,7 @@ def _fase_datos():
             "perfil_riesgo": riesgo, "horizonte_anios": int(horizonte),
         })
         db_utils.set_comision_pct(comision)
+        db_utils.set_meta_monto(meta_monto)
         _entrar_al_dashboard(nombre.strip(), riesgo)
 
     if st.button("← Volver", use_container_width=True):

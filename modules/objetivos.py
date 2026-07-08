@@ -87,15 +87,18 @@ def _tab_analisis():
     st.session_state.setdefault(di_key, max(fmin, fmax - relativedelta(years=10)))
     st.session_state.setdefault(df_key, fmax)
 
-    # "Ver últimos" a lo ancho, con aclaración de que A = años.
+    # Temporalidad a lo ancho (el rango de tiempo que se ve en la gráfica).
     st.markdown("<div style='font-size:12px;color:#9DA5B8;font-weight:600;margin:10px 0 3px;'>"
-                "Ver últimos <span style='color:#C3C9D6;font-weight:500;'>(A = años)</span></div>",
+                "Temporalidad <span style='color:#C3C9D6;font-weight:500;'>(M = meses · A = años)</span></div>",
                 unsafe_allow_html=True)
-    zc = st.columns(4)
-    for i, (lbl, yrs) in enumerate([("1A", 1), ("3A", 3), ("5A", 5), ("10A", 10)]):
+    rangos = [("6M", relativedelta(months=6)), ("1A", relativedelta(years=1)),
+              ("3A", relativedelta(years=3)), ("5A", relativedelta(years=5)),
+              ("10A", relativedelta(years=10))]
+    zc = st.columns(len(rangos))
+    for i, (lbl, delta) in enumerate(rangos):
         if zc[i].button(lbl, key=f"obj_zoom_{ticker}_{freq}_{lbl}", use_container_width=True):
             # Escribimos directo en los date_input para que la gráfica SÍ se mueva
-            st.session_state[di_key] = max(fmin, fmax - relativedelta(years=yrs))
+            st.session_state[di_key] = max(fmin, fmax - delta)
             st.session_state[df_key] = fmax
             st.rerun()
 
@@ -272,13 +275,29 @@ def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user
         fig.add_hline(y=user_sal, line=dict(color=GOLD, width=2, dash="dash"),
                       annotation_text=f"▲ Tu salida ${user_sal:,.2f}",
                       annotation_font_color=GOLD, annotation_position="top right")
+    # El eje Y siempre debe INCLUIR tus líneas de entrada/salida, sin importar la
+    # temporalidad que muestres (si no, la línea quedaría fuera de vista y "desaparece").
+    lows = [df["Low"].min()]
+    highs = [df["High"].max()]
+    if show_bb and "BB_low" in df.columns:
+        lows.append(df["BB_low"].min())
+        highs.append(df["BB_up"].max())
+    for v in (user_ent, user_sal):
+        if v:
+            lows.append(v)
+            highs.append(v)
+    lo, hi = float(min(lows)), float(max(highs))
+    pad = (hi - lo) * 0.06 if hi > lo else max(hi * 0.06, 1.0)
+    yrange = [max(0.0, lo - pad), hi + pad]
+
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=0, r=0, t=30, b=0), height=420,
         title=dict(text=f"Análisis técnico — {ticker}", font=dict(size=13, color="#1a1a2e"), x=0),
         legend=dict(orientation="h", y=1.06, font=dict(size=10, color="#9DA5B8"), bgcolor="rgba(0,0,0,0)"),
         xaxis=dict(showgrid=False, rangeslider=dict(visible=False), fixedrange=True, tickfont=dict(size=10, color="#9DA5B8")),
-        yaxis=dict(gridcolor="#F0F2F8", gridwidth=0.5, fixedrange=True, tickfont=dict(size=10, color="#9DA5B8"), tickprefix="$"),
+        yaxis=dict(gridcolor="#F0F2F8", gridwidth=0.5, fixedrange=True, range=yrange,
+                   tickfont=dict(size=10, color="#9DA5B8"), tickprefix="$"),
         dragmode=False, hovermode="x unified",
     )
     return fig
