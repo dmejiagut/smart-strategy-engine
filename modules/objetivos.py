@@ -72,10 +72,10 @@ def _tab_analisis():
 
     st.markdown("---")
     # Controles de la gráfica
-    c1, cf, c2 = st.columns([1.3, 1.1, 1.9])
+    c1, cf = st.columns(2)
     tipo_chart = c1.radio("Tipo de gráfica", ["Área (línea)", "Velas japonesas"],
-                          horizontal=True, key=f"obj_tipo_{ticker}")
-    freq = cf.radio("Agrupar por", ["1D", "1S", "1M"], horizontal=True,
+                          key=f"obj_tipo_{ticker}")
+    freq = cf.radio("Agrupar por", ["1D", "1S", "1M"],
                     key=f"obj_freq_{ticker}",
                     help="1D = diario · 1S = semanal · 1M = mensual")
     df = resample_ohlc(df, freq)
@@ -87,16 +87,17 @@ def _tab_analisis():
     st.session_state.setdefault(di_key, max(fmin, fmax - relativedelta(years=10)))
     st.session_state.setdefault(df_key, fmax)
 
-    with c2:
-        st.markdown("<div style='font-size:11px;color:#9DA5B8;font-weight:600;"
-                    "margin:0 0 2px;'>Ver últimos</div>", unsafe_allow_html=True)
-        zc = st.columns(4)
-        for i, (lbl, yrs) in enumerate([("1A", 1), ("3A", 3), ("5A", 5), ("10A", 10)]):
-            if zc[i].button(lbl, key=f"obj_zoom_{ticker}_{freq}_{lbl}", use_container_width=True):
-                # Escribimos directo en los date_input para que la gráfica SÍ se mueva
-                st.session_state[di_key] = max(fmin, fmax - relativedelta(years=yrs))
-                st.session_state[df_key] = fmax
-                st.rerun()
+    # "Ver últimos" a lo ancho, con aclaración de que A = años.
+    st.markdown("<div style='font-size:12px;color:#9DA5B8;font-weight:600;margin:10px 0 3px;'>"
+                "Ver últimos <span style='color:#C3C9D6;font-weight:500;'>(A = años)</span></div>",
+                unsafe_allow_html=True)
+    zc = st.columns(4)
+    for i, (lbl, yrs) in enumerate([("1A", 1), ("3A", 3), ("5A", 5), ("10A", 10)]):
+        if zc[i].button(lbl, key=f"obj_zoom_{ticker}_{freq}_{lbl}", use_container_width=True):
+            # Escribimos directo en los date_input para que la gráfica SÍ se mueva
+            st.session_state[di_key] = max(fmin, fmax - relativedelta(years=yrs))
+            st.session_state[df_key] = fmax
+            st.rerun()
 
     # Asegurar que los valores guardados estén dentro de límites
     if not (fmin <= st.session_state[di_key] <= fmax):
@@ -104,7 +105,7 @@ def _tab_analisis():
     if not (fmin <= st.session_state[df_key] <= fmax):
         st.session_state[df_key] = fmax
 
-    cz1, cz2, cz3 = st.columns([1, 1, 3])
+    cz1, cz2 = st.columns(2)
     d_ini = cz1.date_input("Desde", min_value=fmin, max_value=fmax, key=di_key)
     d_fin = cz2.date_input("Hasta", min_value=fmin, max_value=fmax, key=df_key)
     if d_ini > d_fin:
@@ -125,11 +126,21 @@ def _tab_analisis():
 
     sug_key = f"obj_sug_{ticker}"
     sugerencia = st.session_state.get(sug_key)
-    sug_ent = sugerencia["entrada"] if sugerencia and sugerencia.get("ok") else None
-    sug_sal = sugerencia["salida"] if sugerencia and sugerencia.get("ok") else None
 
-    st.plotly_chart(_chart_tecnico(dfx, ticker, tipo_chart, show_ma, show_bb, sug_ent, sug_sal),
-                    use_container_width=True, config={"displayModeBar": False})
+    # Precios de entrada/salida del USUARIO (empiezan en 0). Se leen AQUÍ, antes de
+    # dibujar la gráfica, para pintar sus líneas y que se muevan al ajustarlos abajo.
+    ent_key = f"obj_ent_{ticker}"
+    sal_key = f"obj_sal_{ticker}"
+    st.session_state.setdefault(ent_key, 0.0)
+    st.session_state.setdefault(sal_key, 0.0)
+    user_ent = st.session_state.get(ent_key) or 0.0
+    user_sal = st.session_state.get(sal_key) or 0.0
+
+    st.plotly_chart(
+        _chart_tecnico(dfx, ticker, tipo_chart, show_ma, show_bb,
+                       user_ent if user_ent > 0 else None,
+                       user_sal if user_sal > 0 else None),
+        use_container_width=True, config={"displayModeBar": False})
     if show_rsi:
         st.plotly_chart(_chart_rsi(dfx), use_container_width=True, config={"displayModeBar": False})
 
@@ -171,28 +182,29 @@ def _tab_analisis():
         🎯 Define tu objetivo de trading (precios en {moneda})
     </div>
     """, unsafe_allow_html=True)
-    if f"obj_ent_{ticker}" not in st.session_state:
-        st.session_state[f"obj_ent_{ticker}"] = round(float(precio_actual), 2)
-    if f"obj_sal_{ticker}" not in st.session_state:
-        st.session_state[f"obj_sal_{ticker}"] = round(float(precio_actual) * 1.20, 2)
+    st.caption("💡 Empiezan en $0. Al escribir tu precio de entrada y de salida, verás sus "
+               "líneas moverse en la gráfica de arriba.")
     ce1, ce2 = st.columns(2)
     with ce1:
         st.markdown(f"""<div style="background:#E8FBF4;border:1.5px solid {GREEN};border-radius:12px;padding:14px 18px;">
             <div style="font-size:12px;font-weight:600;color:{GREEN};text-transform:uppercase;letter-spacing:.05em;">▼ Precio de ENTRADA (compra)</div>
         </div>""", unsafe_allow_html=True)
-        precio_entrada = st.number_input("Entrada (USD)", min_value=0.01, step=0.5,
-                                         format="%.2f", key=f"obj_ent_{ticker}", label_visibility="collapsed")
+        precio_entrada = st.number_input(f"Entrada ({moneda})", min_value=0.0, step=0.5,
+                                         format="%.2f", key=ent_key, label_visibility="collapsed")
     with ce2:
         st.markdown(f"""<div style="background:#FFF6E5;border:1.5px solid {GOLD};border-radius:12px;padding:14px 18px;">
             <div style="font-size:12px;font-weight:600;color:{GOLD};text-transform:uppercase;letter-spacing:.05em;">▲ Precio de SALIDA (venta)</div>
         </div>""", unsafe_allow_html=True)
-        precio_salida = st.number_input("Salida (USD)", min_value=0.01, step=0.5,
-                                        format="%.2f", key=f"obj_sal_{ticker}", label_visibility="collapsed")
+        precio_salida = st.number_input(f"Salida ({moneda})", min_value=0.0, step=0.5,
+                                        format="%.2f", key=sal_key, label_visibility="collapsed")
 
-    # Ganancia objetivo
-    gan_pct = (precio_salida - precio_entrada) / precio_entrada * 100 if precio_entrada else 0
+    # Ganancia objetivo (solo con ambos precios definidos)
+    tiene_obj = precio_entrada > 0 and precio_salida > 0
     gan_usd = precio_salida - precio_entrada
-    col_g = GREEN if gan_usd >= 0 else RED
+    gan_pct = (gan_usd / precio_entrada * 100) if precio_entrada > 0 else 0
+    col_g = (GREEN if gan_usd >= 0 else RED) if tiene_obj else "#9DA5B8"
+    gan_usd_txt = f"${gan_usd:,.2f} {moneda}" if tiene_obj else "—"
+    gan_pct_txt = f"{gan_pct:+.2f}%" if tiene_obj else "—"
     st.markdown(f"""
     <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:14px 20px;margin-top:12px;
                 display:flex;justify-content:space-around;align-items:center;text-align:center;">
@@ -200,27 +212,30 @@ def _tab_analisis():
              <div style="font-size:18px;font-weight:600;color:#1a1a2e;">${precio_actual:,.2f}</div></div>
         <div style="font-size:22px;color:#D0D4DE;">→</div>
         <div><div style="font-size:11px;color:#9DA5B8;">Ganancia por acción</div>
-             <div style="font-size:18px;font-weight:600;color:{col_g};">${gan_usd:,.2f} {moneda}</div></div>
+             <div style="font-size:18px;font-weight:600;color:{col_g};">{gan_usd_txt}</div></div>
         <div style="font-size:22px;color:#D0D4DE;">·</div>
         <div><div style="font-size:11px;color:#9DA5B8;">Rendimiento objetivo</div>
-             <div style="font-size:22px;font-weight:700;color:{col_g};">{gan_pct:+.2f}%</div></div>
+             <div style="font-size:22px;font-weight:700;color:{col_g};">{gan_pct_txt}</div></div>
     </div>
     """, unsafe_allow_html=True)
 
-    if precio_salida <= precio_entrada:
+    if tiene_obj and precio_salida <= precio_entrada:
         st.caption("⚠️ El precio de salida es menor o igual al de entrada — revisa tu objetivo.")
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     st.caption("Solo necesitas definir tu punto de entrada y de salida. "
                "El tipo de cambio se aplicará al momento de registrar la compra o la venta.")
+    objetivo_valido = tiene_obj and precio_salida > precio_entrada
     if st.button("🎯 Guardar en Mis estrategias", type="primary", key=f"obj_save_{ticker}",
-                 use_container_width=True):
+                 use_container_width=True, disabled=not objetivo_valido):
         save_obj_strategy(ticker, nombre, precio_entrada, precio_salida, get_tipo_cambio_actual())
         st.success(f"✅ Estrategia de {ticker} guardada — entrada \\${precio_entrada:,.2f} / "
                    f"salida \\${precio_salida:,.2f} {moneda}. Ve a 'Mis estrategias'.")
+    if not objetivo_valido:
+        st.caption("Define un precio de entrada y de salida (salida mayor que entrada) para guardar.")
 
 
-def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, sug_ent=None, sug_sal=None):
+def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user_sal=None):
     fig = go.Figure()
     if show_bb:
         fig.add_trace(go.Scatter(x=df["Fecha"], y=df["BB_up"], name="BB superior",
@@ -248,13 +263,14 @@ def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, sug_ent=None, sug_s
                                  line=dict(color="#C77F00", width=1.3)))
         fig.add_trace(go.Scatter(x=df["Fecha"], y=df["SMA200"], name="SMA 200",
                                  line=dict(color="#A32D2D", width=1.5)))
-    if sug_ent is not None:
-        fig.add_hline(y=sug_ent, line=dict(color=GREEN, width=1.5, dash="dot"),
-                      annotation_text=f"▼ Entrada sugerida ${sug_ent:,.2f}",
+    # Líneas del usuario: se mueven en vivo al ajustar los precios de entrada/salida.
+    if user_ent is not None:
+        fig.add_hline(y=user_ent, line=dict(color=GREEN, width=2, dash="dash"),
+                      annotation_text=f"▼ Tu entrada ${user_ent:,.2f}",
                       annotation_font_color=GREEN, annotation_position="bottom right")
-    if sug_sal is not None:
-        fig.add_hline(y=sug_sal, line=dict(color=GOLD, width=1.5, dash="dot"),
-                      annotation_text=f"▲ Salida sugerida ${sug_sal:,.2f}",
+    if user_sal is not None:
+        fig.add_hline(y=user_sal, line=dict(color=GOLD, width=2, dash="dash"),
+                      annotation_text=f"▲ Tu salida ${user_sal:,.2f}",
                       annotation_font_color=GOLD, annotation_position="top right")
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
