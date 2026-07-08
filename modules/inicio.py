@@ -7,13 +7,14 @@ import plotly.graph_objects as go
 from utils import nav
 from utils.db_utils import (get_perfil, save_perfil, get_modo, load_strategies,
                             load_historial_realizado, set_comision_pct, set_meta_anual,
-                            set_meta_monto, guardar_snapshot_patrimonio, leer_historial_patrimonio)
+                            set_meta_monto, set_casa_bolsa,
+                            guardar_snapshot_patrimonio, leer_historial_patrimonio)
 from utils.resumen_utils import resumen_global, invalidar_resumen, invertido_en_anio
 import streamlit.components.v1 as components
 from modules.resultados_export import export_excel, export_pdf, exportar_json, cartera_payload
 from utils.revisor_utils import generar_html
 from utils.demo_seed import generar_datos_demo
-from modules.bienvenida import cerrar_sesion
+from modules.bienvenida import cerrar_sesion, CASAS_BOLSA
 from utils.seguridad import esc
 
 PURPLE = "#6C63FF"
@@ -22,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v9"
+APP_VERSION = "VestPlan · v10"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -118,6 +119,39 @@ EXPLICACIONES = {
 _RIESGO_COLOR = {"Bajo": "#1D9E75", "Medio": "#EF9F27", "Alto": "#E24B4A", "Variable": "#888780"}
 
 
+@st.dialog("🔔 Notificaciones")
+def _dialog_notificaciones(proximas):
+    """Panel de notificaciones: qué te toca comprar (sobre todo DCA)."""
+    vencidas = [p for p in proximas if p["delta"] <= 0]
+    futuras = [p for p in proximas if p["delta"] > 0]
+    if not proximas:
+        st.success("Todo al día. No tienes compras pendientes. ✅")
+    if vencidas:
+        st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:2px;'>"
+                    "🛒 Te toca comprar</div>", unsafe_allow_html=True)
+        for p in vencidas:
+            estado, color = _estado_compra_txt(p["delta"])
+            st.markdown(
+                f"<div style='padding:8px 0;border-bottom:1px solid #F0F2F8;'>"
+                f"<b style='color:#1a1a2e;'>{esc(p['ticker'])}</b> "
+                f"<span style='color:#9DA5B8;font-size:12px;'>· {p['fecha'].strftime('%d/%m/%Y')} · DCA</span><br>"
+                f"<span style='color:{color};font-size:12.5px;font-weight:600;'>{estado}</span> "
+                f"<span style='color:#9DA5B8;font-size:12px;'>· {p['titulos']} título(s)</span></div>",
+                unsafe_allow_html=True)
+    if futuras:
+        st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin:12px 0 2px;'>"
+                    "⏳ Próximas</div>", unsafe_allow_html=True)
+        for p in futuras[:3]:
+            st.markdown(
+                f"<div style='padding:6px 0;color:#4A5066;font-size:13px;'>"
+                f"<b>{esc(p['ticker'])}</b> · {p['fecha'].strftime('%d/%m/%Y')} "
+                f"<span style='color:#9DA5B8;'>(en {p['delta']} día(s))</span></div>",
+                unsafe_allow_html=True)
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("Ver agenda completa", use_container_width=True):
+        nav.goto(nav.AGENDA)
+
+
 # ─── Inicio ──────────────────────────────────────────────────────────────────
 def render_inicio():
     perfil = get_perfil()
@@ -132,9 +166,10 @@ def render_inicio():
         st.session_state["_snap_dia"] = date.today().isoformat()
     hist = leer_historial_patrimonio()
 
-    vencidas = [p for p in _proximas_compras() if p["delta"] <= 0]
+    proximas = _proximas_compras()
+    vencidas = [p for p in proximas if p["delta"] <= 0]
 
-    # ── Header: marca + campanita (pendientes) + avatar (perfil) ──
+    # ── Header: marca + campanita (notificaciones) + avatar (perfil) ──
     with st.container(key="topbar"):
         hL, hB, hA = st.columns([6, 1.1, 1.1])
         hL.markdown(f"""
@@ -143,8 +178,8 @@ def render_inicio():
             <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
                 <span style="color:{GREEN};">●</span> Sincronizado · precios al momento</div>
         """, unsafe_allow_html=True)
-        if hB.button(f"🔔 {len(vencidas)}" if vencidas else "🔔", key="tb_bell", help="Pendientes"):
-            nav.goto(nav.AGENDA)
+        if hB.button(f"🔔 {len(vencidas)}" if vencidas else "🔔", key="tb_bell", help="Notificaciones"):
+            _dialog_notificaciones(proximas)
         inicial = (perfil.get("nombre") or "U").strip()[:1].upper() or "U"
         if hA.button(inicial, key="tb_perfil", help="Tu perfil"):
             nav.goto(nav.PERFIL)
@@ -613,6 +648,8 @@ def render_perfil():
                                            perfil.get("objetivo")))
         riesgo = st.selectbox("Perfil de riesgo", ["Conservador", "Moderado", "Agresivo"],
                               index=_idx(["Conservador", "Moderado", "Agresivo"], perfil.get("perfil_riesgo")))
+        casa_bolsa = st.selectbox("Casa de bolsa", CASAS_BOLSA,
+                                  index=_idx(CASAS_BOLSA, perfil.get("casa_bolsa")))
         comision = st.number_input(
             "Comisión de tu casa de bolsa (%)", min_value=0.0, max_value=2.0,
             value=float(perfil.get("comision_pct") if perfil.get("comision_pct") is not None else 0.25),
@@ -632,6 +669,7 @@ def render_perfil():
                          "objetivo": objetivo, "perfil_riesgo": riesgo, "horizonte_anios": horizonte})
             set_comision_pct(comision)
             set_meta_monto(meta_monto)
+            set_casa_bolsa(casa_bolsa)
             st.success("✅ Perfil actualizado.")
             st.rerun()
 

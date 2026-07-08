@@ -20,6 +20,10 @@ _RIESGO_DESC = {
 }
 OBJETIVOS = ["Crecimiento de patrimonio", "Ingresos pasivos", "Retiro",
              "Ahorro de corto plazo", "Especulación / trading"]
+# Casas de bolsa (brokers) más comunes en México + opciones abiertas.
+CASAS_BOLSA = ["GBM", "Kuspit", "Actinver", "Bursanet (Banorte)", "Vector",
+               "Finamex", "Hey Banco (Banregio)", "Invex", "Scotiabank",
+               "Flink", "Interactive Brokers", "Otra", "Aún no tengo"]
 
 _GOOGLE_LOGO = (
     "data:image/svg+xml;base64,"
@@ -241,6 +245,10 @@ def _fase_datos():
                       captions=[_RIESGO_DESC[r] for r in RIESGOS],
                       index=_idx(RIESGOS, perfil.get("perfil_riesgo")))
 
+    casa = st.selectbox("¿Con qué casa de bolsa inviertes?", CASAS_BOLSA,
+                        index=_idx(CASAS_BOLSA, perfil.get("casa_bolsa")),
+                        help="Nos ayuda a personalizar tu experiencia. Si no ves la tuya, elige 'Otra'.")
+
     comision = st.number_input(
         "Comisión de tu casa de bolsa (%)", min_value=0.0, max_value=2.0,
         value=float(perfil.get("comision_pct") if perfil.get("comision_pct") is not None else 0.25),
@@ -248,8 +256,15 @@ def _fase_datos():
         help="El % que te cobra tu broker (ej. GBM ≈ 0.25%) por cada compra o venta. "
              "La app la calcula sola en cada operación; podrás cambiarla luego desde tu perfil.")
 
-    if st.button("Empezar", type="primary", use_container_width=True,
-                 disabled=not nombre.strip()):
+    # Validación: solo se puede empezar con todos los datos listos.
+    faltan = []
+    if not nombre.strip():
+        faltan.append("tu nombre")
+    if ingreso <= 0:
+        faltan.append("tu ingreso mensual")
+    completo = not faltan
+
+    if st.button("Empezar", type="primary", use_container_width=True, disabled=not completo):
         db_utils.save_perfil({
             "nombre": nombre.strip(), "edad": int(edad),
             "ingreso_mensual": float(ingreso), "objetivo": objetivo,
@@ -257,7 +272,10 @@ def _fase_datos():
         })
         db_utils.set_comision_pct(comision)
         db_utils.set_meta_monto(meta_monto)
+        db_utils.set_casa_bolsa(casa)
         _entrar_al_dashboard(nombre.strip(), riesgo)
+    if not completo:
+        st.caption("✍️ Para empezar, completa: " + ", ".join(faltan) + ".")
 
     if st.button("← Volver", use_container_width=True):
         st.session_state["_fase_bienv"] = "login"

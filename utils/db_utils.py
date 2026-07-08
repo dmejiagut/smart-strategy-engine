@@ -89,6 +89,11 @@ def init_db():
         conn.execute("ALTER TABLE perfil ADD COLUMN meta_monto REAL DEFAULT 0")
     except Exception:
         pass  # columna ya existe
+    # Casa de bolsa (broker) con la que invierte el usuario
+    try:
+        conn.execute("ALTER TABLE perfil ADD COLUMN casa_bolsa TEXT")
+    except Exception:
+        pass  # columna ya existe
     # ── Dividendos ──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS estrategias_dividendos (
@@ -268,6 +273,17 @@ def set_meta_anual(pct: float):
     conn.execute(
         "INSERT INTO perfil (id, meta_anual) VALUES (1, ?) "
         "ON CONFLICT(id) DO UPDATE SET meta_anual = ?", (float(pct), float(pct)))
+    conn.commit()
+    conn.close()
+
+
+def set_casa_bolsa(nombre: str):
+    """Guarda la casa de bolsa (broker) que usa el usuario."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO perfil (id, casa_bolsa) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET casa_bolsa = ?", (nombre, nombre))
     conn.commit()
     conn.close()
 
