@@ -114,12 +114,17 @@ def _tab_analisis():
     if d_ini > d_fin:
         d_ini, d_fin = fmin, fmax
 
-    # Herramientas de trading (3 recuadros)
+    # Herramientas de análisis técnico: ocultas tras "Modo avanzado" para no
+    # asustar a quien va empezando. Quien las usa lo enciende una vez y queda.
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    t1, t2, t3 = st.columns(3)
-    show_ma = t1.checkbox("📐 Medias Móviles (200·50·20)", key=f"obj_ma_{ticker}")
-    show_bb = t2.checkbox("📊 Bandas de Bollinger", key=f"obj_bb_{ticker}")
-    show_rsi = t3.checkbox("⚡ RSI (Índice de Fuerza Relativa)", key=f"obj_rsi_{ticker}")
+    avanzado = st.toggle("⚙️ Modo avanzado (indicadores técnicos)", key="obj_avanzado",
+                         help="Medias móviles, Bandas de Bollinger y RSI para análisis técnico.")
+    show_ma = show_bb = show_rsi = False
+    if avanzado:
+        t1, t2, t3 = st.columns(3)
+        show_ma = t1.checkbox("📐 Medias Móviles (200·50·20)", key=f"obj_ma_{ticker}")
+        show_bb = t2.checkbox("📊 Bandas de Bollinger", key=f"obj_bb_{ticker}")
+        show_rsi = t3.checkbox("⚡ RSI (Índice de Fuerza Relativa)", key=f"obj_rsi_{ticker}")
 
     mask = (df["Fecha"].dt.date >= d_ini) & (df["Fecha"].dt.date <= d_fin)
     dfx = df[mask]

@@ -221,16 +221,6 @@ def _fase_datos():
         value=st.session_state.get("usuario_nombre") or perfil.get("nombre", ""),
         placeholder="Tu nombre")
 
-    c1, c2 = st.columns(2)
-    edad = c1.number_input("Edad", min_value=18, max_value=100,
-                           value=int(perfil.get("edad") or 30), step=1)
-    horizonte = c2.number_input("Horizonte (años)", min_value=1, max_value=50,
-                                value=int(perfil.get("horizonte_anios") or 10), step=1)
-
-    ingreso = st.number_input("Ingreso mensual (MXN)", min_value=0.0,
-                              value=float(perfil.get("ingreso_mensual") or 0),
-                              step=1000.0, format="%.2f")
-
     objetivo = st.selectbox("¿Cuál es tu objetivo principal?", OBJETIVOS,
                             index=_idx(OBJETIVOS, perfil.get("objetivo")))
 
@@ -256,26 +246,25 @@ def _fase_datos():
         help="El % que te cobra tu broker (ej. GBM ≈ 0.25%) por cada compra o venta. "
              "La app la calcula sola en cada operación; podrás cambiarla luego desde tu perfil.")
 
-    # Validación: solo se puede empezar con todos los datos listos.
-    faltan = []
-    if not nombre.strip():
-        faltan.append("tu nombre")
-    if ingreso <= 0:
-        faltan.append("tu ingreso mensual")
-    completo = not faltan
+    # Validación: solo falta el nombre para empezar (registro corto = más gente
+    # que lo termina). Edad, ingreso y horizonte se editan luego en Perfil.
+    completo = bool(nombre.strip())
 
     if st.button("Empezar", type="primary", use_container_width=True, disabled=not completo):
         db_utils.save_perfil({
-            "nombre": nombre.strip(), "edad": int(edad),
-            "ingreso_mensual": float(ingreso), "objetivo": objetivo,
-            "perfil_riesgo": riesgo, "horizonte_anios": int(horizonte),
+            "nombre": nombre.strip(),
+            # Conservar lo que ya hubiera (no se piden en el alta corta).
+            "edad": perfil.get("edad"),
+            "ingreso_mensual": perfil.get("ingreso_mensual"),
+            "horizonte_anios": perfil.get("horizonte_anios"),
+            "objetivo": objetivo, "perfil_riesgo": riesgo,
         })
         db_utils.set_comision_pct(comision)
         db_utils.set_meta_monto(meta_monto)
         db_utils.set_casa_bolsa(casa)
         _entrar_al_dashboard(nombre.strip(), riesgo)
     if not completo:
-        st.caption("✍️ Para empezar, completa: " + ", ".join(faltan) + ".")
+        st.caption("✍️ Escribe tu nombre para empezar.")
 
     if st.button("← Volver", use_container_width=True):
         st.session_state["_fase_bienv"] = "login"

@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v13"
+APP_VERSION = "VestPlan · v14"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -119,13 +119,79 @@ EXPLICACIONES = {
 _RIESGO_COLOR = {"Bajo": "#1D9E75", "Medio": "#EF9F27", "Alto": "#E24B4A", "Variable": "#888780"}
 
 
+def _alertas_objetivos():
+    """Estrategias 'Por Objetivos' cuyo precio actual ya tocó tu punto de
+    entrada (compra) o de salida (venta). Usa el precio cacheado (máx 5 min)."""
+    from utils.db_utils import load_obj_strategies
+    from utils.ticker_search import get_precio_actual
+    alertas = []
+    for e in load_obj_strategies():
+        q = get_precio_actual(e["ticker"])
+        px = q.get("precio") if q else None
+        if not px:
+            continue
+        ent = float(e.get("precio_entrada") or 0)
+        sal = float(e.get("precio_salida") or 0)
+        if sal > 0 and px >= sal:
+            alertas.append({"ticker": e["ticker"], "tipo": "salida", "precio": px, "objetivo": sal})
+        elif ent > 0 and px <= ent:
+            alertas.append({"ticker": e["ticker"], "tipo": "entrada", "precio": px, "objetivo": ent})
+    return alertas
+
+
+def _racha_dca():
+    """Compras DCA seguidas hechas A TIEMPO (a más tardar 3 días después de su
+    fecha planeada). Premia la disciplina: se rompe con una compra tardía."""
+    from modules.dca import generar_fechas_dca, _parse_fecha, FRECUENCIAS
+    from utils.db_utils import load_purchases
+    marcas = []  # (fecha_compra, a_tiempo) de todas las estrategias
+    for e in load_strategies():
+        f_ini = _parse_fecha(e.get("fecha_inicio"))
+        f_fin = _parse_fecha(e.get("fecha_fin"))
+        frec = e.get("frecuencia")
+        if not (f_ini and f_fin and frec in FRECUENCIAS):
+            continue
+        plan = generar_fechas_dca(f_ini, f_fin, frec)
+        compras = sorted(load_purchases(e["id"]), key=lambda c: str(c.get("fecha")))
+        for i, c in enumerate(compras):
+            if i >= len(plan):
+                break
+            f = _parse_fecha(c.get("fecha"))
+            if f is None:
+                continue
+            marcas.append((f, (f - plan[i]).days <= 3))
+    marcas.sort(key=lambda m: m[0])
+    racha = 0
+    for _, a_tiempo in reversed(marcas):
+        if not a_tiempo:
+            break
+        racha += 1
+    return racha
+
+
 @st.dialog("🔔 Notificaciones")
-def _dialog_notificaciones(proximas):
-    """Panel de notificaciones: qué te toca comprar (sobre todo DCA)."""
+def _dialog_notificaciones(proximas, alertas):
+    """Panel de notificaciones: objetivos alcanzados + qué te toca comprar."""
     vencidas = [p for p in proximas if p["delta"] <= 0]
     futuras = [p for p in proximas if p["delta"] > 0]
-    if not proximas:
+    if not proximas and not alertas:
         st.success("Todo al día. No tienes compras pendientes. ✅")
+    if alertas:
+        st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:2px;'>"
+                    "🎯 Objetivos alcanzados</div>", unsafe_allow_html=True)
+        for a in alertas:
+            if a["tipo"] == "salida":
+                txt, col = "tocó tu precio de SALIDA — podrías vender", GREEN
+            else:
+                txt, col = "tocó tu precio de ENTRADA — podrías comprar", PURPLE
+            st.markdown(
+                f"<div style='padding:8px 0;border-bottom:1px solid #F0F2F8;'>"
+                f"<b style='color:#1a1a2e;'>{esc(a['ticker'])}</b> "
+                f"<span style='color:{col};font-size:12.5px;font-weight:600;'>{txt}</span><br>"
+                f"<span style='color:#9DA5B8;font-size:12px;'>Precio actual ${a['precio']:,.2f} · "
+                f"tu objetivo ${a['objetivo']:,.2f}</span></div>",
+                unsafe_allow_html=True)
+        st.caption("Sugerencia según tu plan — no es asesoría financiera.")
     if vencidas:
         st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:2px;'>"
                     "🛒 Te toca comprar</div>", unsafe_allow_html=True)
@@ -168,18 +234,27 @@ def render_inicio():
 
     proximas = _proximas_compras()
     vencidas = [p for p in proximas if p["delta"] <= 0]
+    alertas = _alertas_objetivos()
+    n_notif = len(vencidas) + len(alertas)
 
     # ── Header: marca + campanita (notificaciones) + avatar (perfil) ──
+    from datetime import datetime
+    try:
+        # El servidor de la nube corre en UTC: mostrar hora de México.
+        from zoneinfo import ZoneInfo
+        hora = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%H:%M")
+    except Exception:
+        hora = datetime.now().strftime("%H:%M")
     with st.container(key="topbar"):
         hL, hB, hA = st.columns([6, 1.1, 1.1])
         hL.markdown(f"""
             <div style="font-size:22px;font-weight:700;letter-spacing:-.3px;color:#1a1a2e;line-height:1.05;">
                 <span style="color:{PURPLE};">Vest</span>Plan</div>
             <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">
-                <span style="color:{GREEN};">●</span> Sincronizado · precios al momento</div>
+                <span style="color:{GREEN};">●</span> Precios al corte de las {hora}</div>
         """, unsafe_allow_html=True)
-        if hB.button(f"🔔 {len(vencidas)}" if vencidas else "🔔", key="tb_bell", help="Notificaciones"):
-            _dialog_notificaciones(proximas)
+        if hB.button(f"🔔 {n_notif}" if n_notif else "🔔", key="tb_bell", help="Notificaciones"):
+            _dialog_notificaciones(proximas, alertas)
         inicial = (perfil.get("nombre") or "U").strip()[:1].upper() or "U"
         if hA.button(inicial, key="tb_perfil", help="Tu perfil"):
             nav.goto(nav.PERFIL)
@@ -198,7 +273,7 @@ def render_inicio():
         """, unsafe_allow_html=True)
 
     # ── Mensaje del copiloto (frase distinta por apertura + estado real) ──
-    _mensaje_estado(res, items, vencidas)
+    _mensaje_estado(res, items, vencidas, alertas)
 
     # ── Tarjeta de patrimonio (oscura, con gráfica de evolución y KPIs) ──
     _tarjeta_patrimonio(res, rend, hist)
@@ -221,6 +296,9 @@ def render_inicio():
     # ── Meta anual de inversión (monto) ──
     _tarjeta_meta_anual(perfil)
 
+    # ── Resumen del mes pasado (invertido + rendimiento del mes) ──
+    _tarjeta_resumen_mensual(hist)
+
     # ── Mis estrategias (top 3 + ver todas) ──
     st.markdown(
         "<div style='font-weight:600;font-size:15px;color:#1a1a2e;margin:2px 0 8px;'>Mis estrategias</div>",
@@ -239,7 +317,7 @@ def render_inicio():
                     _fila_estrategia_activa(f, key=f"act_{i}")
 
 
-def _mensaje_estado(res, items, vencidas):
+def _mensaje_estado(res, items, vencidas, alertas):
     """Copiloto de VestPlan: primero el ESTADO del plan, luego (opcional) el detalle.
     La filosofía va antes que los números. Cambia según la situación real."""
     frase = _frase_filosofia()
@@ -249,17 +327,29 @@ def _mensaje_estado(res, items, vencidas):
         titulo = "Hoy tu plan necesita una acción."
         mas = f" (+{len(vencidas) - 1} más)" if len(vencidas) > 1 else ""
         detalle = f"Comprar <b style='color:#1a1a2e;'>{esc(vencidas[0]['ticker'])}</b>.{mas}"
+    elif alertas:
+        # Un objetivo tocó su precio: celebrarlo y avisar.
+        a = alertas[0]
+        dot = GREEN
+        titulo = "🎉 Objetivo alcanzado."
+        accion = "salida (venta)" if a["tipo"] == "salida" else "entrada (compra)"
+        detalle = (f"<b style='color:#1a1a2e;'>{esc(a['ticker'])}</b> tocó tu precio de "
+                   f"{accion}: ${a['objetivo']:,.2f}. Revisa la campanita 🔔")
     elif not items:
         dot = PURPLE
         titulo = "Empieza tu plan hoy."
         detalle = esc(frase)
     else:
-        # Todo en orden: reforzamos disciplina + frase de filosofía (rota por apertura).
+        # Todo en orden: disciplina primero (racha), luego mejor estrategia o frase.
         dot = GREEN
         titulo = "Todo va conforme a tu plan."
+        racha = _racha_dca()
         activas = _estrategias_activas(items)
         mejor = max(activas, key=lambda x: x["rend_pct"]) if activas else None
-        if mejor and mejor["rend_pct"] > 0 and st.session_state.get("_frase_idx", 0) % 2 == 0:
+        if racha >= 2:
+            detalle = (f"🔥 Excelente disciplina: <b style='color:#1a1a2e;'>{racha} compras "
+                       f"seguidas a tiempo</b>. {esc(frase)}")
+        elif mejor and mejor["rend_pct"] > 0 and st.session_state.get("_frase_idx", 0) % 2 == 0:
             detalle = (f"🏆 Tu mejor estrategia: <b style='color:#1a1a2e;'>{esc(mejor['modulo'])}</b> "
                        f"({mejor['rend_pct']:+.1f}%)")
         else:
@@ -371,6 +461,36 @@ def _tarjeta_meta_anual(perfil):
     """, unsafe_allow_html=True)
 
 
+_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _tarjeta_resumen_mensual(hist):
+    """Resumen del mes pasado: cuánto invertiste y cómo se movió tu portafolio.
+    Solo aparece si hay algo que contar (invertiste o hay histórico del mes)."""
+    from utils.resumen_utils import invertido_en_mes
+    hoy = date.today()
+    anio, mes = (hoy.year, hoy.month - 1) if hoy.month > 1 else (hoy.year - 1, 12)
+    ym = f"{anio:04d}-{mes:02d}"
+    invertido = invertido_en_mes(anio, mes)
+    puntos = [h["valor"] for h in hist if h["fecha"][:7] == ym]
+    pct = ((puntos[-1] / puntos[0] - 1) * 100) if len(puntos) >= 2 and puntos[0] else None
+    if invertido <= 0 and pct is None:
+        return
+    partes = []
+    if invertido > 0:
+        partes.append(f"invertiste <b style='color:#1a1a2e;'>${invertido:,.0f}</b>")
+    if pct is not None:
+        pc = GREEN if pct >= 0 else RED
+        partes.append(f"tu portafolio se movió <b style='color:{pc};'>{pct:+.1f}%</b>")
+    st.markdown(f"""
+    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:12px 16px;margin:2px 0 16px;">
+        <div style="font-size:13px;font-weight:600;color:#1a1a2e;">📊 Tu {_MESES[mes - 1]}</div>
+        <div style="font-size:12px;color:#4A5066;margin-top:3px;">En {_MESES[mes - 1]} {" y ".join(partes)}.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def _estrategias_activas(items):
     """Agrupa las posiciones por estrategia (módulo) con su total y rendimiento."""
     grupos = {}
@@ -417,20 +537,6 @@ def _fila_estrategia_activa(f, key):
         # Botón transparente que cubre toda la tarjeta (ver CSS .st-key-card_).
         if st.button("Abrir", key=f"go_{key}", use_container_width=True):
             nav.goto(destino)
-
-
-def _quick_tile(col, icono, label, bg, fg, destino, key):
-    with col:
-        st.markdown(
-            f"<div class='qa-tile' style='background:{bg};color:{fg};'>{icono}</div>",
-            unsafe_allow_html=True)
-        if st.button(label, key=key, use_container_width=True):
-            if destino == "_analizar":
-                # Atajo: ir a Resultados y generar el diagnóstico automáticamente
-                st.session_state["_auto_analizar"] = True
-                nav.goto(nav.RESULTADOS)
-            else:
-                nav.goto(destino)
 
 
 # ─── Hub de estrategias ──────────────────────────────────────────────────────
@@ -740,6 +846,19 @@ def render_resultados():
             k1.metric("Capital invertido", f"${res['total_invertido']:,.2f}")
             k2.metric("Valor actual", f"${res['total_valor']:,.2f}", delta=f"{rend:+.2f}%")
             st.metric("Ganancia / pérdida no realizada", f"${gan:,.2f} MXN")
+
+            # Tarjeta para compartir (imagen con tu resultado, estilo VestPlan)
+            from utils.compartir import generar_tarjeta_resultados
+            activas = _estrategias_activas(items)
+            mejor = max(activas, key=lambda x: x["rend_pct"]) if activas else None
+            png = generar_tarjeta_resultados(
+                perfil.get("nombre") or "", res["total_valor"], rend,
+                mejor["modulo"] if mejor and mejor["rend_pct"] > 0 else None,
+                mejor["rend_pct"] if mejor and mejor["rend_pct"] > 0 else None)
+            st.download_button("📤 Compartir mi progreso (imagen)", data=png,
+                               file_name="vestplan_mi_progreso.png", mime="image/png",
+                               use_container_width=True,
+                               help="Descarga una tarjeta con tu resultado para compartir por WhatsApp o redes.")
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             if st.session_state.pop("_auto_analizar", False) or st.button(
