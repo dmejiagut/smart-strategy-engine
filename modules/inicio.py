@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v19"
+APP_VERSION = "VestPlan · v20"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -235,7 +235,14 @@ def render_inicio():
     proximas = _proximas_compras()
     vencidas = [p for p in proximas if p["delta"] <= 0]
     alertas = _alertas_objetivos()
-    n_notif = len(vencidas) + len(alertas)
+
+    # Campanita = NOTIFICACIONES: el número solo cuenta lo que NO has visto.
+    # Al abrirla se marca como leído (el número se apaga); si llega algo nuevo,
+    # se vuelve a encender. El copiloto, en cambio, insiste hasta que resuelvas.
+    firmas = ({f"v:{p['ticker']}:{p['fecha']}" for p in vencidas}
+              | {f"a:{a['ticker']}:{a['tipo']}" for a in alertas})
+    vistas = st.session_state.setdefault("_notif_vistas", set())
+    n_notif = len(firmas - vistas)
 
     # Logros: evalúa, guarda los nuevos y los celebra (una sola vez) 🎈
     from utils.logros import evaluar_logros
@@ -262,6 +269,7 @@ def render_inicio():
                 <span style="color:{GREEN};">●</span> Precios al corte de las {hora}</div>
         """, unsafe_allow_html=True)
         if hB.button(f"🔔 {n_notif}" if n_notif else "🔔", key="tb_bell", help="Notificaciones"):
+            st.session_state["_notif_vistas"] = vistas | firmas   # marcar como leídas
             _dialog_notificaciones(proximas, alertas)
         inicial = (perfil.get("nombre") or "U").strip()[:1].upper() or "U"
         if hA.button(inicial, key="tb_perfil", help="Tu perfil"):
