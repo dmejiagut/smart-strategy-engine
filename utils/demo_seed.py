@@ -13,7 +13,7 @@ _TABLAS = [
     "ventas_objetivos", "compras_objetivos", "estrategias_objetivos",
     "compras_fibras", "estrategias_fibras",
     "detalle_copy", "compras_copy", "estrategias_copy",
-    "ventas_cerradas", "historial_patrimonio",
+    "ventas_cerradas", "historial_patrimonio", "logros",
     "perfil",
 ]
 

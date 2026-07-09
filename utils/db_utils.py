@@ -243,6 +243,13 @@ def init_db():
             creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
+    # ── Logros desbloqueados (gamificación: una vez ganado, no se pierde) ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS logros (
+            clave TEXT PRIMARY KEY,
+            fecha TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -273,6 +280,24 @@ def set_meta_anual(pct: float):
     conn.execute(
         "INSERT INTO perfil (id, meta_anual) VALUES (1, ?) "
         "ON CONFLICT(id) DO UPDATE SET meta_anual = ?", (float(pct), float(pct)))
+    conn.commit()
+    conn.close()
+
+
+def load_logros() -> dict:
+    """{clave: fecha} de los logros ya desbloqueados."""
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute("SELECT clave, fecha FROM logros").fetchall()
+    conn.close()
+    return {r["clave"]: r["fecha"] for r in rows}
+
+
+def guardar_logro(clave: str):
+    """Marca un logro como desbloqueado (idempotente: no duplica ni actualiza)."""
+    init_db()
+    conn = _get_conn()
+    conn.execute("INSERT OR IGNORE INTO logros (clave) VALUES (?)", (clave,))
     conn.commit()
     conn.close()
 

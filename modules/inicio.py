@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v15"
+APP_VERSION = "VestPlan · v16"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -237,6 +237,14 @@ def render_inicio():
     alertas = _alertas_objetivos()
     n_notif = len(vencidas) + len(alertas)
 
+    # Logros: evalúa, guarda los nuevos y los celebra (una sola vez) 🎈
+    from utils.logros import evaluar_logros
+    racha = _racha_dca()
+    _, logros_nuevos = evaluar_logros(res, racha, perfil)
+    if logros_nuevos:
+        st.session_state["_logro_nuevo"] = logros_nuevos[0]
+        st.balloons()
+
     # ── Header: marca + campanita (notificaciones) + avatar (perfil) ──
     from datetime import datetime
     try:
@@ -273,7 +281,7 @@ def render_inicio():
         """, unsafe_allow_html=True)
 
     # ── Mensaje del copiloto (frase distinta por apertura + estado real) ──
-    _mensaje_estado(res, items, vencidas, alertas)
+    _mensaje_estado(res, items, vencidas, alertas, racha)
 
     # ── Tarjeta de patrimonio (oscura, con gráfica de evolución y KPIs) ──
     _tarjeta_patrimonio(res, rend, hist)
@@ -314,16 +322,23 @@ def render_inicio():
                     _fila_estrategia_activa(f, key=f"act_{i}")
 
 
-def _mensaje_estado(res, items, vencidas, alertas):
+def _mensaje_estado(res, items, vencidas, alertas, racha=0):
     """Copiloto de VestPlan: primero el ESTADO del plan, luego (opcional) el detalle.
     La filosofía va antes que los números. Cambia según la situación real."""
     frase = _frase_filosofia()
+    logro_nuevo = st.session_state.get("_logro_nuevo")
     if vencidas:
         # Hay algo que hacer HOY: la app pide una acción concreta.
         dot = "#EF9F27"
         titulo = "Hoy tu plan necesita una acción."
         mas = f" (+{len(vencidas) - 1} más)" if len(vencidas) > 1 else ""
         detalle = f"Comprar <b style='color:#1a1a2e;'>{esc(vencidas[0]['ticker'])}</b>.{mas}"
+    elif logro_nuevo:
+        # Acabas de desbloquear un logro: ¡celebrarlo!
+        dot = GREEN
+        titulo = "🏅 ¡Nuevo logro desbloqueado!"
+        detalle = (f"<b style='color:#1a1a2e;'>{esc(logro_nuevo)}</b> — "
+                   f"míralo en tu perfil (avatar arriba a la derecha).")
     elif alertas:
         # Un objetivo tocó su precio: celebrarlo y avisar.
         a = alertas[0]
@@ -340,7 +355,6 @@ def _mensaje_estado(res, items, vencidas, alertas):
         # Todo en orden: disciplina primero (racha), luego mejor estrategia o frase.
         dot = GREEN
         titulo = "Todo va conforme a tu plan."
-        racha = _racha_dca()
         activas = _estrategias_activas(items)
         mejor = max(activas, key=lambda x: x["rend_pct"]) if activas else None
         if racha >= 2:
@@ -763,6 +777,8 @@ def render_perfil():
     </div>
     """, unsafe_allow_html=True)
 
+    _seccion_logros(perfil)
+
     with st.form("form_perfil"):
         nombre = st.text_input("Nombre", value=perfil.get("nombre", ""))
         c1, c2 = st.columns(2)
@@ -843,6 +859,37 @@ def _idx(opciones, valor):
         return opciones.index(valor)
     except (ValueError, TypeError):
         return 0
+
+
+def _seccion_logros(perfil):
+    """Vitrina de logros en Perfil: los ganados a color, los pendientes en gris."""
+    from utils.logros import evaluar_logros
+    res = resumen_global()
+    badges, _ = evaluar_logros(res, _racha_dca(), perfil)
+    ganados = sum(1 for b in badges if b["ganado"])
+    celdas = ""
+    for b in badges:
+        if b["ganado"]:
+            estilo, em_op = "background:#fff;border:1px solid #E0DBFA;", ""
+        else:
+            estilo = "background:#F6F6F9;border:1px dashed #E2E6EE;"
+            em_op = "filter:grayscale(1);opacity:.35;"
+        celdas += (
+            f"<div style='{estilo}border-radius:12px;padding:10px 6px;text-align:center;"
+            f"width:calc(25% - 6px);' title='{esc(b['desc'])}'>"
+            f"<div style='font-size:24px;{em_op}'>{b['emoji']}</div>"
+            f"<div style='font-size:9.5px;color:{'#1a1a2e' if b['ganado'] else '#9DA5B8'};"
+            f"font-weight:600;margin-top:3px;line-height:1.2;'>{esc(b['titulo'])}</div></div>")
+    st.markdown(f"""
+    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:14px;padding:14px 14px 10px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:700;color:#1a1a2e;">🏅 Mis logros</div>
+            <div style="font-size:11px;color:#9DA5B8;">{ganados} de {len(badges)}</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">{celdas}</div>
+        <div style="font-size:10.5px;color:#C3C9D6;margin-top:8px;">Se desbloquean con tu disciplina, no con la suerte del mercado.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ─── Mis Resultados ──────────────────────────────────────────────────────────
