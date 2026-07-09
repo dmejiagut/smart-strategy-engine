@@ -380,6 +380,11 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "") -> i
     if existing:
         conn.close()
         return int(existing["id"])
+    from utils.pipeline import pipeline_guardado, registrar_guardado
+    chequeo = pipeline_guardado("Copy Trading", {"investor_id": investor_id, "nombre": nombre})
+    if not chequeo["ok"]:
+        conn.close()
+        raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
         "INSERT INTO estrategias_copy (investor_id, nombre, fondo) VALUES (?, ?, ?)",
         (investor_id, nombre, fondo),
@@ -387,6 +392,7 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "") -> i
     new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    registrar_guardado("Copy Trading", chequeo["version"], new_id)
     return int(new_id)
 
 def load_copy_strategies() -> list[dict]:
@@ -463,6 +469,11 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
     if existing:
         conn.close()
         return int(existing["id"])
+    from utils.pipeline import pipeline_guardado, registrar_guardado
+    chequeo = pipeline_guardado("FIBRAs", {"ticker": ticker, "nombre": nombre})
+    if not chequeo["ok"]:
+        conn.close()
+        raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
         "INSERT INTO estrategias_fibras (ticker, nombre, sector) VALUES (?, ?, ?)",
         (ticker, nombre, sector),
@@ -470,6 +481,7 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
     new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    registrar_guardado("FIBRAs", chequeo["version"], new_id)
     return int(new_id)
 
 def load_fibra_strategies() -> list[dict]:
@@ -517,6 +529,11 @@ def delete_fibra_purchase(purchase_id: int):
 def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
                       precio_salida: float, tipo_cambio: float = 1.0) -> int:
     init_db()
+    from utils.pipeline import pipeline_guardado, registrar_guardado
+    chequeo = pipeline_guardado("Por Objetivos", {
+        "ticker": ticker, "precio_entrada": precio_entrada, "precio_salida": precio_salida})
+    if not chequeo["ok"]:
+        raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     conn = _get_conn()
     cur = conn.execute(
         """INSERT INTO estrategias_objetivos
@@ -527,6 +544,7 @@ def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
     new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    registrar_guardado("Por Objetivos", chequeo["version"], new_id)
     return int(new_id)
 
 def load_obj_strategies() -> list[dict]:
@@ -611,6 +629,11 @@ def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
     if existing:
         conn.close()
         return int(existing["id"])
+    from utils.pipeline import pipeline_guardado, registrar_guardado
+    chequeo = pipeline_guardado("Dividendos", {"ticker": ticker, "nombre": nombre})
+    if not chequeo["ok"]:
+        conn.close()
+        raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
         "INSERT INTO estrategias_dividendos (ticker, nombre, giro) VALUES (?, ?, ?)",
         (ticker, nombre, giro),
@@ -618,6 +641,7 @@ def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
     new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    registrar_guardado("Dividendos", chequeo["version"], new_id)
     return int(new_id)
 
 def load_div_strategies() -> list[dict]:
@@ -692,10 +716,15 @@ def delete_purchase(purchase_id: int):
 
 def save_strategy(data: dict):
     init_db()
+    # Pipeline de validación (pasos 1-4) antes de escribir; bloquea si hay errores.
+    from utils.pipeline import pipeline_guardado, registrar_guardado
+    chequeo = pipeline_guardado("DCA", data)
+    if not chequeo["ok"]:
+        raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     fechas = data.get("fechas", [])
     conn = _get_conn()
     cal_on = 1 if data.get("cal_activado") else 0
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO estrategias_dca
             (ticker, frecuencia, titulos, fecha_inicio, fecha_fin, n_fechas,
              tipo_cambio, comision_pct, cal_activado, cal_hora, cal_anticip, cal_creado)
@@ -707,8 +736,10 @@ def save_strategy(data: dict):
         cal_on, data.get("cal_hora"), data.get("cal_anticip"),
         cal_on,  # si se activó al crear, los eventos ya se crearon
     ))
+    new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    registrar_guardado("DCA", chequeo["version"], new_id)   # paso 5 (auditoría)
 
 
 def set_cal_creado(strategy_id: int, valor: int = 1):

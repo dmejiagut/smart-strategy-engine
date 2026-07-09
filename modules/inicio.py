@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v20"
+APP_VERSION = "VestPlan · v21"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -231,6 +231,16 @@ def render_inicio():
         guardar_snapshot_patrimonio(res["total_invertido"], res["total_valor"])
         st.session_state["_snap_dia"] = date.today().isoformat()
     hist = leer_historial_patrimonio()
+
+    # Pipeline periódico (pasos 6-8): condiciones, estadísticas y optimizaciones.
+    # Corre 1 vez al día (candado en BD + sesión); sus resultados van al log de auditoría.
+    if st.session_state.get("_pipe_dia") != date.today().isoformat():
+        try:
+            from utils.pipeline import pipeline_periodico
+            pipeline_periodico()
+        except Exception:
+            pass  # nunca debe tirar el Inicio; el detalle queda en los logs
+        st.session_state["_pipe_dia"] = date.today().isoformat()
 
     proximas = _proximas_compras()
     vencidas = [p for p in proximas if p["delta"] <= 0]
@@ -890,6 +900,27 @@ def render_perfil():
             invalidar_resumen()
             st.success("✅ Datos sintéticos generados.")
             st.rerun()
+
+    # ── Auditoría del pipeline de estrategias ──
+    st.markdown("---")
+    with st.expander("🧾 Auditoría del pipeline de estrategias"):
+        st.caption("Cada validación, métrica y revisión periódica queda registrada aquí. "
+                   "Ningún paso se repite para la misma versión de una estrategia.")
+        from utils.pipeline import leer_logs, PASOS
+        logs = leer_logs(30)
+        if not logs:
+            st.info("Aún no hay registros. Se generan al crear estrategias y en la revisión diaria.")
+        for lg in logs:
+            color = {"ok": GREEN, "advertencia": "#C77F00",
+                     "error": RED, "omitido": "#9DA5B8"}.get(lg["resultado"], "#9DA5B8")
+            st.markdown(
+                f"<div style='padding:6px 0;border-bottom:1px solid #F0F2F8;font-size:12px;'>"
+                f"<span style='color:#9DA5B8;'>{lg['creado_en'][:16]}</span> · "
+                f"<b style='color:#1a1a2e;'>{esc(lg['modulo'])}</b> · "
+                f"{PASOS.get(lg['paso'], lg['paso'])} → "
+                f"<b style='color:{color};'>{lg['resultado']}</b><br>"
+                f"<span style='color:#4A5066;'>{esc(lg['detalle'] or '')}</span></div>",
+                unsafe_allow_html=True)
 
     # ── Cerrar sesión ──
     st.markdown("---")
