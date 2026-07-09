@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v17"
+APP_VERSION = "VestPlan · v18"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -280,26 +280,12 @@ def render_inicio():
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Mensaje del copiloto (frase distinta por apertura + estado real) ──
-    _mensaje_estado(res, items, vencidas, alertas, racha)
+    # ── Mensaje del copiloto (estado del plan; toca para ver el detalle) ──
+    # La tarjeta ES el acceso al detalle: sin sección 'Pendientes' duplicada.
+    _mensaje_estado(res, items, vencidas, alertas, racha, proximas)
 
     # ── Tarjeta de patrimonio (oscura, con gráfica de evolución y KPIs) ──
     _tarjeta_patrimonio(res, rend, hist)
-
-    # ── Pendientes: SOLO compras de HOY o vencidas (nunca a futuro) ──
-    if vencidas:
-        p = vencidas[0]  # la más urgente
-        estado, color = _estado_compra_txt(p["delta"])
-        extra = f" · +{len(vencidas) - 1} más" if len(vencidas) > 1 else ""
-        st.markdown("<div style='font-size:15px;font-weight:600;color:#1a1a2e;margin:2px 0 6px;'>Pendientes</div>",
-                    unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown(
-                f"<div style='font-size:12px;color:#9DA5B8;'>Compra pendiente{extra}</div>"
-                f"<div style='font-size:14px;'><b style='color:#1a1a2e;'>{esc(p['ticker'])}</b> "
-                f"<span style='color:#9DA5B8;font-size:12px;'>· {p['fecha'].strftime('%d/%m/%Y')}</span> "
-                f"<b style='color:{color};font-size:12.5px;'> {estado}</b></div>",
-                unsafe_allow_html=True)
 
     # ── Meta anual de inversión (toca la tarjeta para ver tu ahorro mes a mes) ──
     _tarjeta_meta_anual(perfil)
@@ -322,9 +308,9 @@ def render_inicio():
                     _fila_estrategia_activa(f, key=f"act_{i}")
 
 
-def _mensaje_estado(res, items, vencidas, alertas, racha=0):
+def _mensaje_estado(res, items, vencidas, alertas, racha=0, proximas=None):
     """Copiloto de VestPlan: primero el ESTADO del plan, luego (opcional) el detalle.
-    La filosofía va antes que los números. Cambia según la situación real."""
+    TODA la tarjeta es tocable y abre el panel de notificaciones (por eso la ›)."""
     frase = _frase_filosofia()
     logro_nuevo = st.session_state.get("_logro_nuevo")
     if vencidas:
@@ -365,17 +351,22 @@ def _mensaje_estado(res, items, vencidas, alertas, racha=0):
                        f"({mejor['rend_pct']:+.1f}%)")
         else:
             detalle = esc(frase)
-    st.markdown(f"""
-    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:12px 14px;
-                margin-bottom:14px;box-shadow:0 1px 3px rgba(16,24,40,.04);
-                display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div>
-            <div style="font-size:13.5px;color:#1a1a2e;"><span style="color:{dot};">●</span> <b>{titulo}</b></div>
-            <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">{detalle}</div>
+    with st.container(key="card_estado"):
+        st.markdown(f"""
+        <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:12px 14px;
+                    box-shadow:0 1px 3px rgba(16,24,40,.04);
+                    display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div>
+                <div style="font-size:13.5px;color:#1a1a2e;"><span style="color:{dot};">●</span> <b>{titulo}</b></div>
+                <div style="font-size:11px;color:#9DA5B8;margin-top:3px;">{detalle}</div>
+            </div>
+            <div style="font-size:18px;color:#C3C9D6;">›</div>
         </div>
-        <div style="font-size:18px;color:#C3C9D6;">›</div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        # Botón invisible sobre toda la tarjeta (CSS .st-key-card_) → notificaciones.
+        if st.button("Ver detalle", key="estado_detalle", use_container_width=True):
+            _dialog_notificaciones(proximas or [], alertas or [])
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
 
 def _kpi_chip(label, valor, color):
