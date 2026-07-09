@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v18"
+APP_VERSION = "VestPlan · v19"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -299,13 +299,10 @@ def render_inicio():
         if st.button("Explorar estrategias →", type="primary", use_container_width=True, key="ini_explorar"):
             nav.goto(nav.ESTRATEGIAS)
     else:
-        activas = _estrategias_activas(items)
-        for i, f in enumerate(activas[:3]):
+        # Se agrupan por módulo, así que nunca hay más de 5 tarjetas: se muestran
+        # TODAS (esconder posiciones activas tras un botón era pura fricción).
+        for i, f in enumerate(_estrategias_activas(items)):
             _fila_estrategia_activa(f, key=f"act_{i}")
-        if len(activas) > 3:
-            with st.expander(f"Ver todas mis estrategias ({len(activas)})"):
-                for i, f in enumerate(activas[3:], start=3):
-                    _fila_estrategia_activa(f, key=f"act_{i}")
 
 
 def _mensaje_estado(res, items, vencidas, alertas, racha=0, proximas=None):
