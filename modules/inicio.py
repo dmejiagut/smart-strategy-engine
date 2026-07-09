@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v16"
+APP_VERSION = "VestPlan · v17"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -243,7 +243,7 @@ def render_inicio():
     _, logros_nuevos = evaluar_logros(res, racha, perfil)
     if logros_nuevos:
         st.session_state["_logro_nuevo"] = logros_nuevos[0]
-        st.balloons()
+        _confeti()
 
     # ── Header: marca + campanita (notificaciones) + avatar (perfil) ──
     from datetime import datetime
@@ -479,6 +479,59 @@ def _tarjeta_meta_anual(perfil):
 
 _MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+
+
+def _confeti():
+    """Lluvia de confeti sobre toda la pantalla (colores VestPlan), ~4 segundos.
+    Streamlit no trae confeti nativo; se anima un canvas sobre la página padre
+    desde un iframe oculto (mismo patrón que el script del calendario)."""
+    with st.container(key="confeti"):
+        components.html("""
+<script>
+(function(){
+  var d = window.parent.document;
+  if (d.getElementById('vp-confeti')) return;   // no duplicar si hay rerun
+  var c = d.createElement('canvas');
+  c.id = 'vp-confeti';
+  c.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:99999;';
+  d.body.appendChild(c);
+  c.width = d.documentElement.clientWidth;
+  c.height = d.documentElement.clientHeight;
+  var ctx = c.getContext('2d');
+  var colores = ['#6C63FF','#22C55E','#F4B400','#F97316','#2563EB','#EC4899','#8B5CF6'];
+  var piezas = [];
+  for (var i = 0; i < 160; i++){
+    piezas.push({
+      x: Math.random() * c.width,
+      y: -20 - Math.random() * c.height * 0.6,
+      w: 5 + Math.random() * 6,
+      h: 8 + Math.random() * 9,
+      vy: 2.2 + Math.random() * 3.2,
+      vx: -1.2 + Math.random() * 2.4,
+      rot: Math.random() * Math.PI,
+      vr: -0.14 + Math.random() * 0.28,
+      color: colores[(Math.random() * colores.length) | 0]
+    });
+  }
+  var inicio = Date.now();
+  (function cuadro(){
+    var t = Date.now() - inicio;
+    ctx.clearRect(0, 0, c.width, c.height);
+    piezas.forEach(function(p){
+      p.y += p.vy;
+      p.x += p.vx + Math.sin(t / 280 + p.rot) * 0.8;   // vaivén al caer
+      p.rot += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    if (t < 4200) requestAnimationFrame(cuadro);
+    else c.remove();
+  })();
+})();
+</script>
+""", height=0)
 
 
 @st.dialog("💰 Tu ahorro invertido")

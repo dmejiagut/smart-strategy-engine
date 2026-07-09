@@ -190,8 +190,8 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
     /* Número del st.metric un poco más chico para que no se parta */
     [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
 }
-/* Ocultar el iframe del script auxiliar (cierra-calendario) sin ocupar espacio */
-.st-key-dpfix { display: none !important; }
+/* Ocultar los iframes de scripts auxiliares (cierra-calendario, confeti) */
+.st-key-dpfix, .st-key-confeti { display: none !important; }
 
 /* Header superior de Inicio: campanita (pendientes) + avatar (perfil) */
 .st-key-topbar [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 2px !important; }
