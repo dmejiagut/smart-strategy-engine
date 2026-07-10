@@ -5,8 +5,9 @@ Diseño:
   listas desplegables, no se escriben a mano. La lista de estrategias muestra el
   detalle que distingue a cada una (frecuencia, fechas, entrada/salida) para que
   dos estrategias del mismo ticker no se confundan, y lleva un id oculto.
-- Hoja 'Historial' (solo lectura): todo lo ya cargado.
-Copy Trading queda fuera (su estructura es una canasta, no filas simples).
+- Hoja 'Copy Trading' (aparte): como Copy es una canasta por acción, tiene su
+  propia hoja — eliges la Cartera y la Acción de listas, y el precio va en USD.
+- Hoja 'Historial' (solo lectura): todo lo ya cargado (los 5 módulos).
 """
 import io
 import re
@@ -36,6 +37,24 @@ def _modulos():
          db_utils.load_obj_sales),
         ("FIBRAs", db_utils.load_fibra_strategies(), db_utils.load_fibra_purchases, None),
     ]
+
+
+def _copy_carteras():
+    """Carteras de Copy Trading del usuario, con su etiqueta (id oculto) y los
+    tickers que puede operar (los del inversionista + los que ya tenga en posición)."""
+    from utils.copytrading_utils import INVERSIONISTAS
+    inv_by_id = {i["id"]: i for i in INVERSIONISTAS}
+    out = []
+    for e in db_utils.load_copy_strategies():
+        inv = inv_by_id.get(e["investor_id"])
+        tickers = [t for t, _ in inv["holdings"]] if inv else []
+        for p in db_utils.posiciones_copy(e["id"]):
+            if p["ticker"] not in tickers:
+                tickers.append(p["ticker"])
+        nombre = e.get("nombre") or e["investor_id"]
+        out.append({"eid": e["id"], "nombre": nombre,
+                    "label": f"{nombre}  —  id COPY-{e['id']}", "tickers": tickers})
+    return out
 
 
 def _label_estrategia(modulo, e) -> str:
@@ -94,11 +113,59 @@ def generar_plantilla() -> bytes:
     ws.add_data_validation(dv_op)
     dv_op.add("B2:B1000")
 
+    _hoja_copy(wb, ws_lst)
     _hoja_historial(wb)
 
     bio = io.BytesIO()
     wb.save(bio)
     return bio.getvalue()
+
+
+def _hoja_copy(wb, ws_lst):
+    """Hoja aparte para Copy Trading: Cartera + Acción (desplegables) + compra/venta.
+    El precio va en USD (Copy opera en dólares)."""
+    ws = wb.create_sheet("Copy Trading")
+    cols = ["Cartera", "Acción", "Operación", "Fecha", "Títulos", "Precio (USD)", "Tipo de cambio"]
+    for c, h in enumerate(cols, start=1):
+        cell = ws.cell(row=1, column=c, value=h)
+        cell.fill = _HEAD_FILL
+        cell.font = _HEAD_FONT
+        cell.alignment = Alignment(horizontal="center")
+    for i, w in enumerate([34, 12, 12, 13, 9, 12, 14], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+
+    carteras = _copy_carteras()
+    if not carteras:
+        ws.cell(row=2, column=1, value="No tienes carteras de Copy Trading. Copia una en la app y descarga la plantilla de nuevo.")
+        return
+
+    # Listas (hoja oculta): B = carteras, C = tickers (unión de todas)
+    ws_lst["B1"] = "Carteras"
+    for i, c in enumerate(carteras, start=2):
+        ws_lst.cell(row=i, column=2, value=c["label"])
+    tickers = sorted({t for c in carteras for t in c["tickers"]})
+    ws_lst["C1"] = "Tickers"
+    for i, t in enumerate(tickers, start=2):
+        ws_lst.cell(row=i, column=3, value=t)
+
+    nb, ntk = max(len(carteras), 1), max(len(tickers), 1)
+    dv_cart = DataValidation(type="list", formula1=f"Listas!$B$2:$B${nb + 1}", allow_blank=True,
+                             showErrorMessage=True)
+    dv_cart.error = "Elige una cartera de la lista."
+    ws.add_data_validation(dv_cart)
+    dv_cart.add("A2:A1000")
+
+    dv_tk = DataValidation(type="list", formula1=f"Listas!$C$2:$C${ntk + 1}", allow_blank=True,
+                           showErrorMessage=True)
+    dv_tk.error = "Elige una acción de la lista."
+    ws.add_data_validation(dv_tk)
+    dv_tk.add("B2:B1000")
+
+    dv_op = DataValidation(type="list", formula1='"Compra,Venta"', allow_blank=True,
+                           showErrorMessage=True)
+    ws.add_data_validation(dv_op)
+    dv_op.add("C2:C1000")
 
 
 def _precio_usd(precio, tc):
@@ -133,6 +200,20 @@ def _hoja_historial(wb):
                     ws.append([modulo, nombre, "Venta", v.get("fecha"), v.get("titulos"),
                                v.get("precio"), tc, _precio_usd(v.get("precio"), tc),
                                v.get("comision", 0.0)])
+    # Copy Trading (canasta por acción): compras del detalle + ventas cerradas
+    for cart in _copy_carteras():
+        eid, nombre = cart["eid"], cart["nombre"]
+        for cp in db_utils.load_copy_purchases(eid):
+            tc = cp.get("tipo_cambio", 1.0)
+            for d in cp["detalle"]:
+                ws.append(["Copy Trading", f"{nombre} · {d['ticker']}", "Compra", cp.get("fecha"),
+                           d["titulos"], round(d["precio_usd"] * tc, 2), tc,
+                           round(d["precio_usd"], 2), ""])
+        for v in db_utils.load_ventas_cerradas("Copy Trading", eid):
+            tc = v.get("tipo_cambio", 1.0) or 1.0
+            ws.append(["Copy Trading", f"{nombre} · {v['ticker']}", "Venta", v.get("fecha"),
+                       v.get("titulos"), v.get("precio"), tc,
+                       round((v.get("precio") or 0) / tc, 2), v.get("comision", 0.0)])
     for i, w in enumerate([14, 16, 11, 14, 10, 12, 14, 15, 12], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
@@ -158,7 +239,14 @@ def _hoja_instrucciones(ws):
         ("Notas:", Font(bold=True, size=11)),
         ("• La lista de Estrategia distingue las repetidas: si tienes dos DCA de MU,", None),
         ("  verás su frecuencia y fecha de inicio para saber cuál es cuál.", None),
-        ("• Solo 'Por Objetivos' admite Venta. Copy Trading no se importa por aquí.", None),
+        ("• En 'Movimientos' solo 'Por Objetivos' admite Venta (DCA/Dividendos/FIBRAs solo Compra).", None),
+        ("", None),
+        ("Copy Trading (pestaña aparte):", Font(bold=True, size=11)),
+        ("• Como es una canasta, va en su propia hoja 'Copy Trading'.", None),
+        ("• Elige la Cartera y la Acción de las listas, y la Operación (Compra o Venta).", None),
+        ("• Aquí el Precio va EN DÓLARES (USD) por acción, porque Copy opera en dólares.", None),
+        ("• El Tipo de cambio son pesos por dólar el día de tu operación.", None),
+        ("", None),
         ("• La pestaña 'Historial' es solo informativa (lo que ya tienes cargado).", None),
     ]
     for i, (txt, font) in enumerate(lineas, start=1):
@@ -224,7 +312,57 @@ def importar_excel(archivo) -> dict:
         if ok:
             res["insertadas"] += 1
             res["por_estrategia"][etiqueta] = res["por_estrategia"].get(etiqueta, 0) + 1
+
+    if "Copy Trading" in wb.sheetnames:
+        _importar_copy(wb["Copy Trading"], res)
     return res
+
+
+def _importar_copy(ws, res):
+    """Importa la hoja 'Copy Trading': Cartera + Acción + Compra/Venta (precio en USD)."""
+    for r in range(2, ws.max_row + 1):
+        cart = ws.cell(r, 1).value
+        tk = ws.cell(r, 2).value
+        op = ws.cell(r, 3).value
+        fecha = ws.cell(r, 4).value
+        tit = ws.cell(r, 5).value
+        precio = ws.cell(r, 6).value  # USD
+        tc = ws.cell(r, 7).value
+        if not cart and tit in (None, "") and precio in (None, ""):
+            continue  # fila vacía
+        m = re.search(r"id COPY-(\d+)", str(cart or ""))
+        if not m:
+            res["errores"].append(f"Copy fila {r}: elige la cartera de la lista desplegable")
+            continue
+        eid = int(m.group(1))
+        if not tk:
+            res["errores"].append(f"Copy fila {r}: elige la acción de la lista")
+            continue
+        ticker = str(tk).strip().upper()
+        try:
+            fecha_d = _parse_fecha(fecha)
+            tit_i = int(float(tit))
+            precio_usd = float(precio)
+            tc_f = float(tc) if tc not in (None, "") else 1.0
+            es_venta = bool(op) and str(op).strip().lower().startswith("v")
+        except Exception:
+            res["errores"].append(f"Copy fila {r}: datos incompletos o inválidos")
+            continue
+        if tit_i <= 0 or precio_usd <= 0:
+            res["errores"].append(f"Copy fila {r}: títulos y precio deben ser mayores a 0")
+            continue
+        com = comision_desde_perfil(tit_i * precio_usd * tc_f)
+        etiqueta = f"{str(cart).split('  —  ')[0]} · {ticker}"
+        if es_venta:
+            r2 = db_utils.registrar_venta_copy(eid, ticker, fecha_d, tit_i, precio_usd, tc_f, com)
+            if not r2.get("ok"):
+                res["errores"].append(f"Copy fila {r}: {r2.get('msg')}")
+                continue
+        else:
+            db_utils.save_copy_purchase(eid, fecha_d, tit_i * precio_usd * tc_f, tc_f,
+                                        [{"ticker": ticker, "titulos": tit_i, "precio_usd": precio_usd}])
+        res["insertadas"] += 1
+        res["por_estrategia"][etiqueta] = res["por_estrategia"].get(etiqueta, 0) + 1
 
 
 def _insertar(modulo, sid, es_venta, fecha, tit, precio, tc, com, res, r) -> bool:
