@@ -30,47 +30,99 @@ def render_objetivos():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Análisis técnico — define precio de entrada y salida, y sigue tu meta</p>
     </div>
     """, unsafe_allow_html=True)
-    if load_obj_strategies():
-        tab_estrategias, tab_analisis = st.tabs(["📋  Mis estrategias", "📊  Análisis técnico"])
-    else:
-        tab_analisis, tab_estrategias = st.tabs(["📊  Análisis técnico", "📋  Mis estrategias"])
-    with tab_analisis:
-        _tab_analisis()
-    with tab_estrategias:
+    st.session_state.setdefault("obj_step", 1)
+    st.session_state.setdefault("obj_data", {})
+    tiene = bool(load_obj_strategies())
+    LBL_MIS, LBL_NUEVA = "📋  Mis estrategias", "➕  Nueva estrategia"
+    if st.session_state.pop("_obj_goto_mis", False):
+        st.session_state["obj_view"] = LBL_MIS
+    st.session_state.setdefault("obj_view", LBL_MIS if tiene else LBL_NUEVA)
+    if not tiene:
+        st.session_state["obj_view"] = LBL_NUEVA
+    vista = st.segmented_control("Vista", [LBL_MIS, LBL_NUEVA], key="obj_view",
+                                 label_visibility="collapsed")
+    if vista is None:
+        vista = LBL_MIS if tiene else LBL_NUEVA
+    if vista == LBL_MIS:
         _mis_estrategias_obj()
+    else:
+        _wizard_obj()
 
 
-# ── Tab 1: análisis técnico ──────────────────────────────────────────────────
-def _tab_analisis():
+# ── Wizard: 1. Emisora · 2. Análisis · 3. Confirmar ──────────────────────────
+def _wizard_obj():
     estrategia_comun.boton_ayuda(
         "ayuda_obj",
         "🎯 Cómo usar el módulo Por Objetivos",
         "Aquí defines a qué precio quieres COMPRAR una acción y a qué precio quieres VENDER (tu meta), "
-        "y le das seguimiento. Pasos:",
+        "y le das seguimiento. Lo armas en 3 pasos:",
         [
-            ("1. Busca una acción", "Escríbela arriba para ver su gráfica de precios de los últimos años."),
-            ("2. Explora la gráfica", "Puedes cambiar entre línea y velas, y activar medias móviles, Bandas de Bollinger o RSI."),
-            ("3. Define entrada y salida", "Escribe el precio al que quieres COMPRAR (entrada) y al que quieres VENDER (salida). La app te muestra la ganancia objetivo."),
-            ("4. Guárdala y opera", "Pulsa 'Guardar en Mis estrategias'. Luego, en esa pestaña, registras tus compras y ventas por lote."),
+            ("1. Emisora", "Busca y elige la acción para ver su gráfica de precios de los últimos años."),
+            ("2. Análisis", "Explora la gráfica (línea/velas, medias móviles, Bollinger, RSI), usa '🤖 Analizar gráfica' y define tu precio de entrada (compra) y de salida (venta)."),
+            ("3. Confirmar", "Revisa tu objetivo y guárdalo en 'Mis estrategias'."),
+            ("Después: registra tus operaciones", "En 'Mis estrategias' registras tus compras y ventas por lote."),
         ],
         nota="El botón '🤖 Analizar gráfica' te sugiere precios de entrada/salida según el análisis técnico; puedes editarlos a tu gusto.")
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    st.markdown("**Selecciona la acción a analizar**")
+    step = st.session_state.obj_step
+    estrategia_comun.barra_pasos(step, ["1. Emisora", "2. Análisis", "3. Confirmar"])
+    if step == 1:
+        _obj_paso_emisora()
+    elif step == 2:
+        _obj_paso_analisis()
+    else:
+        _obj_paso_confirmar()
+
+
+def _chip_obj(d: dict):
+    ticker = d.get("ticker", "")
+    nombre = d.get("nombre") or ticker
+    st.markdown(f"""
+    <div style="display:inline-block;background:#F0EEFF;border:0.5px solid #D4CFFF;
+                border-radius:20px;padding:5px 14px;margin-bottom:10px;">
+        <span style="font-size:12.5px;color:#6C63FF;font-weight:600;">🎯 {nombre} ({ticker})</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _obj_paso_emisora():
+    st.markdown("**Elección de la emisora a analizar**")
     datos = widget_buscador(key="obj_buscar")
-    if not datos:
-        st.info("Busca una acción arriba para cargar su análisis técnico de los últimos 10 años.")
-        return
-    ticker = datos["ticker"]
-    nombre = datos.get("nombre", ticker)
-    precio_actual = datos.get("precio", 0)
-    moneda = datos.get("moneda", "USD")
+    if datos:
+        st.session_state.obj_data = {
+            "ticker": datos["ticker"], "nombre": datos.get("nombre", datos["ticker"]),
+            "precio": datos.get("precio", 0), "moneda": datos.get("moneda", "USD"),
+        }
+    elegida = st.session_state.obj_data.get("ticker")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    if elegida:
+        _chip_obj(st.session_state.obj_data)
+        if st.button("Continuar →", type="primary", use_container_width=True, key="obj_next1"):
+            st.session_state.obj_step = 2
+            st.rerun()
+    else:
+        st.info("Busca una acción arriba para cargar su análisis técnico y continuar.")
+
+
+def _obj_paso_analisis():
+    d = st.session_state.obj_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.obj_step = 1
+        st.rerun()
+    nombre = d.get("nombre", ticker)
+    precio_actual = d.get("precio", 0)
+    moneda = d.get("moneda", "USD")
+    _chip_obj(d)
 
     df = get_ohlc(ticker)
     if df.empty:
         st.warning(f"No se pudo cargar el histórico de {ticker}.")
+        if st.button("← Atrás", key="obj_back2_err"):
+            st.session_state.obj_step = 1
+            st.rerun()
         return
 
-    st.markdown("---")
     # Controles de la gráfica
     c1, cf = st.columns(2)
     tipo_chart = c1.radio("Tipo de gráfica", ["Área (línea)", "Velas japonesas"],
@@ -234,13 +286,64 @@ def _tab_analisis():
     st.caption("Solo necesitas definir tu punto de entrada y de salida. "
                "El tipo de cambio se aplicará al momento de registrar la compra o la venta.")
     objetivo_valido = tiene_obj and precio_salida > precio_entrada
-    if st.button("🎯 Guardar en Mis estrategias", type="primary", key=f"obj_save_{ticker}",
-                 use_container_width=True, disabled=not objetivo_valido):
-        save_obj_strategy(ticker, nombre, precio_entrada, precio_salida, get_tipo_cambio_actual())
-        st.success(f"✅ Estrategia de {ticker} guardada — entrada \\${precio_entrada:,.2f} / "
-                   f"salida \\${precio_salida:,.2f} {moneda}. Ve a 'Mis estrategias'.")
-    if not objetivo_valido:
-        st.caption("Define un precio de entrada y de salida (salida mayor que entrada) para guardar.")
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    c_back, c_next = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="obj_back2"):
+        st.session_state.obj_step = 1
+        st.rerun()
+    if objetivo_valido:
+        if c_next.button("Continuar →", type="primary", use_container_width=True, key="obj_next2"):
+            st.session_state.obj_step = 3
+            st.rerun()
+    else:
+        c_next.button("Continuar →", disabled=True, use_container_width=True, key="obj_next2d",
+                      help="Define un precio de entrada y de salida (salida mayor que entrada) para continuar.")
+
+
+def _obj_paso_confirmar():
+    d = st.session_state.obj_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.obj_step = 1
+        st.rerun()
+    nombre = d.get("nombre", ticker)
+    moneda = d.get("moneda", "USD")
+    p_ent = st.session_state.get(f"obj_ent_{ticker}") or 0.0
+    p_sal = st.session_state.get(f"obj_sal_{ticker}") or 0.0
+    if not (p_ent > 0 and p_sal > p_ent):
+        st.warning("Faltan precios válidos de entrada y salida. Vuelve al paso de Análisis.")
+        if st.button("← Atrás", key="obj_back3_err"):
+            st.session_state.obj_step = 2
+            st.rerun()
+        return
+    gan = p_sal - p_ent
+    gan_pct = gan / p_ent * 100 if p_ent else 0
+    st.markdown(f"""
+    <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:18px 22px;">
+        <div style="font-size:16px;font-weight:600;color:#1a1a2e;">🎯 {nombre} ({ticker})</div>
+        <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;">
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Entrada (compra)</div>
+                 <div style="font-size:15px;font-weight:600;color:{GREEN};">${p_ent:,.2f} {moneda}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Salida (venta)</div>
+                 <div style="font-size:15px;font-weight:600;color:{GOLD};">${p_sal:,.2f} {moneda}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Rendimiento objetivo</div>
+                 <div style="font-size:15px;font-weight:700;color:{PURPLE};">{gan_pct:+.2f}%</div></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info("Vas a guardar esta estrategia por objetivos. "
+            "Después registras tus compras y ventas por lote en 'Mis estrategias'.")
+    c_back, c_ok = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="obj_back3"):
+        st.session_state.obj_step = 2
+        st.rerun()
+    if c_ok.button("✅ Confirmar y guardar", type="primary", use_container_width=True, key="obj_confirm"):
+        save_obj_strategy(ticker, nombre, p_ent, p_sal, get_tipo_cambio_actual())
+        st.session_state.obj_step = 1
+        st.session_state.obj_data = {}
+        st.session_state["_obj_goto_mis"] = True
+        st.rerun()
 
 
 def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user_sal=None):
@@ -333,7 +436,7 @@ def _mis_estrategias_obj():
         <div style="text-align:center;padding:48px 24px;color:#9DA5B8;">
             <div style="font-size:32px;margin-bottom:12px;">🎯</div>
             <div style="font-size:14px;font-weight:500;color:#4A5066;">Sin estrategias de trading</div>
-            <div style="font-size:12px;margin-top:6px;">Ve a "Análisis técnico", define entrada y salida, y guárdala</div>
+            <div style="font-size:12px;margin-top:6px;">Ve a "Nueva estrategia", define entrada y salida, y confírmala</div>
         </div>
         """, unsafe_allow_html=True)
         return
