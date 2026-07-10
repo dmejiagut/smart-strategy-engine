@@ -30,14 +30,23 @@ def render_fibras():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Análisis de Fideicomisos de Inversión en Bienes Raíces mexicanos — todo en pesos (MXN)</p>
     </div>
     """, unsafe_allow_html=True)
-    if load_fibra_strategies():
-        tab_estrategias, tab_analisis = st.tabs(["📋  Mis estrategias", "🏢  Análisis de FIBRAs"])
-    else:
-        tab_analisis, tab_estrategias = st.tabs(["🏢  Análisis de FIBRAs", "📋  Mis estrategias"])
-    with tab_analisis:
-        _tab_analisis()
-    with tab_estrategias:
+    st.session_state.setdefault("fibra_step", 1)
+    st.session_state.setdefault("fibra_data", {})
+    tiene = bool(load_fibra_strategies())
+    LBL_MIS, LBL_NUEVA = "📋  Mis estrategias", "➕  Nueva estrategia"
+    if st.session_state.pop("_fibra_goto_mis", False):
+        st.session_state["fibra_view"] = LBL_MIS
+    st.session_state.setdefault("fibra_view", LBL_MIS if tiene else LBL_NUEVA)
+    if not tiene:
+        st.session_state["fibra_view"] = LBL_NUEVA
+    vista = st.segmented_control("Vista", [LBL_MIS, LBL_NUEVA], key="fibra_view",
+                                 label_visibility="collapsed")
+    if vista is None:
+        vista = LBL_MIS if tiene else LBL_NUEVA
+    if vista == LBL_MIS:
         _mis_estrategias_fibra()
+    else:
+        _wizard_fibra()
 
 
 # ── Tab 1: análisis ──────────────────────────────────────────────────────────
@@ -58,20 +67,45 @@ def _cargar_tabla() -> pd.DataFrame:
     return pd.DataFrame(filas)
 
 
-def _tab_analisis():
+# ── Wizard: 1. Emisora · 2. Análisis · 3. Confirmar ──────────────────────────
+def _wizard_fibra():
     estrategia_comun.boton_ayuda(
         "ayuda_fib",
         "🏢 Cómo usar el módulo de FIBRAs",
         "Las FIBRAs son bienes raíces (centros comerciales, oficinas) que compras en la Bolsa Mexicana, "
-        "todo en pesos. Pasos:",
+        "todo en pesos. Lo armas en 3 pasos:",
         [
-            ("1. Mira la tabla", "Son las FIBRAs del mercado mexicano. Pulsa 'Analizar y calificar FIBRAs' para colorearlas según su atractivo (verde = mejor)."),
-            ("2. Elige una FIBRA", "Selecciónala abajo para ver su precio, su dividend yield y su rendimiento del año."),
-            ("3. Agrégala", "Pulsa 'Agregar a mi estrategia de FIBRAs'."),
-            ("4. Registra tus compras", "En 'Mis estrategias' anota cuántos CBFIs (títulos) compraste y a qué precio. La app sigue tus rentas y plusvalía."),
+            ("1. Emisora", "Mira la tabla de FIBRAs del mercado mexicano, pulsa 'Analizar y calificar' para colorearlas (verde = mejor) y elige una."),
+            ("2. Análisis", "Revisa su precio, su dividend yield, su rendimiento del año y su calificación."),
+            ("3. Confirmar", "Agrégala a tu estrategia de FIBRAs."),
+            ("Después: registra tus compras", "En 'Mis estrategias' anota cuántos CBFIs (títulos) compraste y a qué precio. La app sigue tus rentas y plusvalía."),
         ],
         nota="Un 'CBFI' es cada título de una FIBRA, parecido a una acción. Todo se maneja en pesos (MXN).")
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    step = st.session_state.fibra_step
+    estrategia_comun.barra_pasos(step, ["1. Emisora", "2. Análisis", "3. Confirmar"])
+    if step == 1:
+        _fib_paso_emisora()
+    elif step == 2:
+        _fib_paso_analisis()
+    else:
+        _fib_paso_confirmar()
+
+
+def _chip_fibra(d: dict):
+    ticker = d.get("ticker", "")
+    nombre = d.get("nombre") or ticker
+    sector = d.get("sector") or ""
+    extra = f" · {sector}" if sector else ""
+    st.markdown(f"""
+    <div style="display:inline-block;background:#F0EEFF;border:0.5px solid #D4CFFF;
+                border-radius:20px;padding:5px 14px;margin-bottom:10px;">
+        <span style="font-size:12.5px;color:#6C63FF;font-weight:600;">🏢 {nombre} ({ticker}){extra}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _fib_paso_emisora():
     st.markdown("**FIBRAs que cotizan en la Bolsa Mexicana de Valores**")
     df = _cargar_tabla()
     if df.empty:
@@ -120,25 +154,41 @@ def _tab_analisis():
     else:
         st.caption("Pulsa **Analizar y calificar FIBRAs** para colorear la tabla según su atractivo.")
 
-    # Detalle / agregar
+    # Selección de la FIBRA
     st.markdown("---")
-    st.markdown("**Selecciona una FIBRA para ver su detalle y agregarla a tu estrategia**")
+    st.markdown("**Selecciona una FIBRA para continuar**")
     opciones = {f"{r['Fibra']} ({r['ticker']}) · {r['Sector']}": r["ticker"]
                 for _, r in df.iterrows()}
     sel_label = st.selectbox("FIBRA", list(opciones.keys()), key="fib_sel")
     ticker_sel = opciones[sel_label]
     fila = df[df["ticker"] == ticker_sel].iloc[0]
-    nombre_sel = fila["Fibra"]
-    sector_sel = fila["Sector"]
+    st.session_state.fibra_data = {
+        "ticker": ticker_sel, "nombre": fila["Fibra"], "sector": fila["Sector"],
+    }
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    _chip_fibra(st.session_state.fibra_data)
+    if st.button("Continuar →", type="primary", use_container_width=True, key="fib_next1"):
+        st.session_state.fibra_step = 2
+        st.rerun()
 
+
+def _fib_paso_analisis():
+    d = st.session_state.fibra_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.fibra_step = 1
+        st.rerun()
+    _chip_fibra(d)
+    m = get_fibra_metrics(ticker)
     cI1, cI2, cI3, cI4 = st.columns(4)
-    cI1.metric("Precio", f"${fila['Precio (MXN)']:,.2f} MXN")
-    cI2.metric("Dividend Yield", f"{fila['Div. Yield (%)']:.1f}%" if pd.notna(fila["Div. Yield (%)"]) else "—")
-    cI3.metric("Rend. 2026", f"{fila['Rend. 2026 (%)']:+.1f}%" if pd.notna(fila["Rend. 2026 (%)"]) else "—")
-    cI4.metric("Valor de mercado", f"${fila['Valor Mcdo (mdp)']:,.0f} mdp" if pd.notna(fila["Valor Mcdo (mdp)"]) else "—")
+    cI1.metric("Precio", f"${m['precio']:,.2f} MXN" if m.get("precio") else "—")
+    cI2.metric("Dividend Yield", f"{m['div_yield']:.1f}%" if m.get("div_yield") is not None else "—")
+    cI3.metric("Rend. 2026", f"{m['ytd']:+.1f}%" if m.get("ytd") is not None else "—")
+    cI4.metric("Valor de mercado",
+               f"${m['market_cap']/1e6:,.0f} mdp" if m.get("market_cap") else "—")
 
-    if analisis and ticker_sel in analisis:
-        a = analisis[ticker_sel]
+    a = analizar_fibra(m)
+    if a:
         col = COLOR_TXT[a["color"]]
         motivos_html = "".join(f"<li style='margin-bottom:2px;'>{mo}</li>" for mo in a["motivos"])
         st.markdown(f"""
@@ -146,13 +196,58 @@ def _tab_analisis():
             <div style="font-size:13px;font-weight:700;color:{col};">
                 {a['recomendacion']} · Score {a['score']}/100</div>
             <ul style="font-size:12px;color:#4A5066;margin:6px 0 0;padding-left:18px;">{motivos_html}</ul>
+            <div style="font-size:10.5px;color:#9DA5B8;font-style:italic;margin-top:8px;">
+                Análisis informativo automático, no es asesoría financiera.</div>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    if st.button(f"➕ Agregar {nombre_sel} a mi estrategia de FIBRAs", type="primary", key=f"fib_add_{ticker_sel}"):
-        save_fibra_strategy(ticker_sel, nombre_sel, sector_sel)
-        st.success(f"✅ **{nombre_sel}** agregada. Ve a la pestaña 'Mis estrategias' para registrar compras.")
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    c_back, c_next = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="fib_back2"):
+        st.session_state.fibra_step = 1
+        st.rerun()
+    if c_next.button("Continuar →", type="primary", use_container_width=True, key="fib_next2"):
+        st.session_state.fibra_step = 3
+        st.rerun()
+
+
+def _fib_paso_confirmar():
+    d = st.session_state.fibra_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.fibra_step = 1
+        st.rerun()
+    nombre = d.get("nombre") or ticker
+    sector = d.get("sector") or ""
+    m = get_fibra_metrics(ticker)
+    precio = m.get("precio")
+    dy = m.get("div_yield")
+    precio_txt = f"${precio:,.2f} MXN" if precio else "—"
+    dy_txt = f"{dy:.1f}%" if dy is not None else "—"
+    sector_txt = f" · {sector}" if sector else ""
+    st.markdown(f"""
+    <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:18px 22px;">
+        <div style="font-size:16px;font-weight:600;color:#1a1a2e;">🏢 {nombre} ({ticker}){sector_txt}</div>
+        <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;">
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Precio</div>
+                 <div style="font-size:15px;font-weight:600;color:#1a1a2e;">{precio_txt}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Dividend Yield</div>
+                 <div style="font-size:15px;font-weight:600;color:#1D9E75;">{dy_txt}</div></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info("Vas a agregar esta FIBRA a tu estrategia. "
+            "Después registras tus compras (CBFIs) en 'Mis estrategias'.")
+    c_back, c_ok = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="fib_back3"):
+        st.session_state.fibra_step = 2
+        st.rerun()
+    if c_ok.button("✅ Confirmar y guardar", type="primary", use_container_width=True, key="fib_confirm"):
+        save_fibra_strategy(ticker, nombre, sector)
+        st.session_state.fibra_step = 1
+        st.session_state.fibra_data = {}
+        st.session_state["_fibra_goto_mis"] = True
+        st.rerun()
 
 
 # ── Tab 2: mis estrategias ───────────────────────────────────────────────────
@@ -163,7 +258,7 @@ def _mis_estrategias_fibra():
         <div style="text-align:center;padding:48px 24px;color:#9DA5B8;">
             <div style="font-size:32px;margin-bottom:12px;">🏢</div>
             <div style="font-size:14px;font-weight:500;color:#4A5066;">Sin FIBRAs en tu estrategia</div>
-            <div style="font-size:12px;margin-top:6px;">Ve a "Análisis de FIBRAs", elige una y agrégala</div>
+            <div style="font-size:12px;margin-top:6px;">Ve a "Nueva estrategia", elige una FIBRA y confírmala</div>
         </div>
         """, unsafe_allow_html=True)
         return

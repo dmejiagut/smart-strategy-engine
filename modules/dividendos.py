@@ -37,30 +37,63 @@ def render_dividendos():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Acciones que reparten dividendos — analiza, agrega a tu estrategia y registra tus compras</p>
     </div>
     """, unsafe_allow_html=True)
-    if load_div_strategies():
-        tab_estrategias, tab_buscar = st.tabs(["📋  Mis estrategias", "🔍  Buscar acción"])
-    else:
-        tab_buscar, tab_estrategias = st.tabs(["🔍  Buscar acción", "📋  Mis estrategias"])
-    with tab_buscar:
-        _tab_buscar()
-    with tab_estrategias:
+    st.session_state.setdefault("div_step", 1)
+    st.session_state.setdefault("div_data", {})
+    tiene = bool(load_div_strategies())
+    LBL_MIS, LBL_NUEVA = "📋  Mis estrategias", "➕  Nueva estrategia"
+    if st.session_state.pop("_div_goto_mis", False):
+        st.session_state["div_view"] = LBL_MIS
+    st.session_state.setdefault("div_view", LBL_MIS if tiene else LBL_NUEVA)
+    if not tiene:
+        st.session_state["div_view"] = LBL_NUEVA
+    vista = st.segmented_control("Vista", [LBL_MIS, LBL_NUEVA], key="div_view",
+                                 label_visibility="collapsed")
+    if vista is None:
+        vista = LBL_MIS if tiene else LBL_NUEVA
+    if vista == LBL_MIS:
         _mis_estrategias_div()
+    else:
+        _wizard_div()
 
 
-# ── Tab 1: buscar / recomendadas ─────────────────────────────────────────────
-def _tab_buscar():
+# ── Wizard: 1. Emisora · 2. Análisis · 3. Confirmar ──────────────────────────
+def _wizard_div():
     estrategia_comun.boton_ayuda(
         "ayuda_div",
         "💡 Cómo usar el módulo de Dividendos",
-        "Aquí encuentras acciones que te pagan dividendos (una 'renta' por ser dueño) y sigues tus ingresos. Pasos:",
+        "Aquí encuentras acciones que te pagan dividendos (una 'renta' por ser dueño) y sigues tus ingresos. Lo armas en 3 pasos:",
         [
-            ("1. Elige una acción", "Selecciónala de la tabla de recomendadas, o búscala arriba por nombre o clave (ej: KO, Coca-Cola)."),
-            ("2. Revisa su análisis", "Verás su último dividendo, el yield (cuánto rinde) y su historial de pagos para decidir."),
-            ("3. Agrégala a tu estrategia", "Pulsa 'Agregar a mi estrategia de Dividendos' para empezar a seguirla."),
-            ("4. Registra tus compras", "En la pestaña 'Mis estrategias' anota a qué precio y cuántas compraste; la app calcula tus ingresos por dividendos."),
+            ("1. Emisora", "Elige una acción de la tabla de recomendadas o búscala por nombre o clave (ej: KO, Coca-Cola)."),
+            ("2. Análisis", "Revisa su último dividendo, su yield (cuánto rinde) y su historial de pagos para decidir."),
+            ("3. Confirmar", "Agrégala a tu estrategia de Dividendos para empezar a seguirla."),
+            ("Después: registra tus compras", "En 'Mis estrategias' anotas a qué precio y cuántas compraste; la app calcula tus ingresos por dividendos."),
         ],
         nota="En 'Mis estrategias' también puedes registrar ventas y ver tu rendimiento.")
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    step = st.session_state.div_step
+    estrategia_comun.barra_pasos(step, ["1. Emisora", "2. Análisis", "3. Confirmar"])
+    if step == 1:
+        _div_paso_emisora()
+    elif step == 2:
+        _div_paso_analisis()
+    else:
+        _div_paso_confirmar()
+
+
+def _chip_emisora(d: dict):
+    ticker = d.get("ticker", "")
+    nombre = d.get("nombre") or ticker
+    giro = d.get("giro") or ""
+    extra = f" · {giro}" if giro else ""
+    st.markdown(f"""
+    <div style="display:inline-block;background:#F0EEFF;border:0.5px solid #D4CFFF;
+                border-radius:20px;padding:5px 14px;margin-bottom:10px;">
+        <span style="font-size:12.5px;color:#6C63FF;font-weight:600;">💰 {nombre} ({ticker}){extra}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _div_paso_emisora():
     st.markdown("**Acciones recomendadas por altos dividendos (SIC)**")
     df_rec = pd.DataFrame(RECOMENDADAS_SIC)
     df_show = df_rec.rename(columns={
@@ -71,31 +104,105 @@ def _tab_buscar():
         df_show, use_container_width=True, hide_index=True, height=388,
         on_select="rerun", selection_mode="single-row", key="div_rec_table",
     )
-    ticker_sel = None
+    ticker_sel = nombre_sel = giro_sel = None
     rows_sel = seleccion.selection.rows if hasattr(seleccion, "selection") else []
     if rows_sel:
-        ticker_sel = RECOMENDADAS_SIC[rows_sel[0]]["ticker"]
+        r = RECOMENDADAS_SIC[rows_sel[0]]
+        ticker_sel, nombre_sel, giro_sel = r["ticker"], r["nombre"], r["giro"]
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown("**¿Otra acción? Búscala aquí**")
     datos_busqueda = widget_buscador(key="div_buscar")
     if datos_busqueda:
         ticker_sel = datos_busqueda["ticker"]
+        nombre_sel = datos_busqueda.get("nombre") or ticker_sel
+        giro_sel = ""
 
-    if not ticker_sel:
-        st.info("Selecciona una acción recomendada de la tabla o búscala arriba para ver su análisis de dividendos.")
-        return
+    if ticker_sel:
+        st.session_state.div_data = {
+            "ticker": ticker_sel, "nombre": nombre_sel or ticker_sel, "giro": giro_sel or "",
+        }
 
-    _panel_analisis(ticker_sel)
+    elegida = st.session_state.div_data.get("ticker")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    if elegida:
+        _chip_emisora(st.session_state.div_data)
+        if st.button("Continuar →", type="primary", use_container_width=True, key="div_next1"):
+            st.session_state.div_step = 2
+            st.rerun()
+    else:
+        st.info("Selecciona una acción recomendada de la tabla o búscala arriba para continuar.")
 
 
-def _panel_analisis(ticker: str):
-    st.markdown("---")
+def _div_paso_analisis():
+    d = st.session_state.div_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.div_step = 1
+        st.rerun()
+    _chip_emisora(d)
+    tiene_div = _analisis_dividendo(ticker)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    c_back, c_next = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="div_back2"):
+        st.session_state.div_step = 1
+        st.rerun()
+    if tiene_div:
+        if c_next.button("Continuar →", type="primary", use_container_width=True, key="div_next2"):
+            st.session_state.div_step = 3
+            st.rerun()
+    else:
+        c_next.button("Continuar →", disabled=True, use_container_width=True, key="div_next2d",
+                      help="Esta acción no reparte dividendos; elige otra.")
+
+
+def _div_paso_confirmar():
+    d = st.session_state.div_data
+    ticker = d.get("ticker")
+    if not ticker:
+        st.session_state.div_step = 1
+        st.rerun()
+    nombre = d.get("nombre") or ticker
+    giro = d.get("giro") or ""
+    resumen = get_dividend_summary(ticker)
+    ult = resumen.get("ultimo_pago") or 0.0
+    yld = resumen.get("yield_pct")
+    yld_txt = f"{yld:.2f}%" if yld else "—"
+    giro_txt = f" · {giro}" if giro else ""
+    st.markdown(f"""
+    <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:18px 22px;">
+        <div style="font-size:16px;font-weight:600;color:#1a1a2e;">💰 {nombre} ({ticker}){giro_txt}</div>
+        <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;">
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Último dividendo</div>
+                 <div style="font-size:15px;font-weight:600;color:#1a1a2e;">${ult:,.2f} USD</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Dividend Yield (TTM)</div>
+                 <div style="font-size:15px;font-weight:600;color:#1D9E75;">{yld_txt}</div></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info("Vas a agregar esta acción a tu estrategia de Dividendos. "
+            "Después registras tus compras en 'Mis estrategias'.")
+    c_back, c_ok = st.columns([1, 2])
+    if c_back.button("← Atrás", use_container_width=True, key="div_back3"):
+        st.session_state.div_step = 2
+        st.rerun()
+    if c_ok.button("✅ Confirmar y guardar", type="primary", use_container_width=True, key="div_confirm"):
+        save_div_strategy(ticker, nombre, giro)
+        st.session_state.div_step = 1
+        st.session_state.div_data = {}
+        st.session_state["_div_goto_mis"] = True
+        st.rerun()
+
+
+# ── Análisis de dividendos (paso 2) ──────────────────────────────────────────
+def _analisis_dividendo(ticker: str) -> bool:
+    """KPIs, gráficas y salud del dividendo. Devuelve True si la acción reparte
+    dividendos (hay historial); False si no."""
     resumen = get_dividend_summary(ticker)
     if resumen["ultimo_pago"] is None:
         st.warning(f"⚠️ **{ticker}** no tiene historial de dividendos en la fuente de datos. "
-                   "Probablemente no reparte dividendos.")
-        return
+                   "Probablemente no reparte dividendos. Vuelve atrás y elige otra acción.")
+        return False
 
     # Encontrar nombre/giro si es recomendada
     nombre, giro = ticker, ""
@@ -200,12 +307,7 @@ def _panel_analisis(ticker: str):
             </div>
             """, unsafe_allow_html=True)
 
-    # Botón agregar a estrategia
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    if st.button("➕ Agregar a mi estrategia de Dividendos", type="primary", key=f"add_div_{ticker}"):
-        save_div_strategy(ticker, nombre, giro)
-        st.success(f"✅ **{ticker}** agregada a tu estrategia de dividendos. "
-                   "Ve a la pestaña 'Mis estrategias' para registrar compras.")
+    return True
 
 
 def _chart_linea(df, col, titulo, color, prefix="", suffix=""):
@@ -236,7 +338,7 @@ def _mis_estrategias_div():
         <div style="text-align:center;padding:48px 24px;color:#9DA5B8;">
             <div style="font-size:32px;margin-bottom:12px;">💰</div>
             <div style="font-size:14px;font-weight:500;color:#4A5066;">Sin acciones en tu estrategia de dividendos</div>
-            <div style="font-size:12px;margin-top:6px;">Ve a "Buscar acción", elige una y pulsa "Agregar a mi estrategia"</div>
+            <div style="font-size:12px;margin-top:6px;">Ve a "Nueva estrategia", elige una acción y confírmala</div>
         </div>
         """, unsafe_allow_html=True)
         return

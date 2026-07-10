@@ -22,6 +22,27 @@ def seccion(label: str):
     """, unsafe_allow_html=True)
 
 
+def barra_pasos(step: int, pasos: list):
+    """Barra de progreso del wizard (mismo estilo en todas las estrategias).
+
+    step: número del paso actual (1-based). pasos: lista de nombres, ej.
+    ["1. Emisora", "2. Análisis", "3. Confirmar"].
+    """
+    cols = st.columns(len(pasos))
+    for i, (col, nombre) in enumerate(zip(cols, pasos), start=1):
+        with col:
+            color = "#6C63FF" if i <= step else "#9DA5B8"
+            bg = "#F0EEFF" if i <= step else "#F8F9FC"
+            border = "#D4CFFF" if i <= step else "#E8ECF4"
+            st.markdown(f"""
+            <div style="text-align:center;background:{bg};border-radius:8px;
+                        padding:8px 4px;border:0.5px solid {border};">
+                <span style="font-size:12px;font-weight:500;color:{color};">{nombre}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+
 def venta_form(modulo: str, eid: int, ticker: str):
     disp = db_utils.titulos_disponibles(modulo, eid)
     st.markdown(f"Disponibles para vender: **{disp}** título(s)")
