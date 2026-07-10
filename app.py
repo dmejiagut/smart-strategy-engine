@@ -88,7 +88,26 @@ div[role="dialog"] { border-radius: 18px !important; }
 [data-testid="stMetric"] {
     background: #FFFFFF; border: 0.5px solid #E8ECF4;
     border-radius: 12px; padding: 12px 14px;
+    overflow: hidden;
 }
+/* El VALOR de la métrica debe caber SIEMPRE (nunca cortarse con "..."). Streamlit
+   por defecto usa una fuente grande y a veces recorta; aquí la achicamos en todos
+   los anchos (no solo en móvil) y dejamos que envuelva en vez de recortar. */
+[data-testid="stMetricValue"] {
+    font-size: 1.55rem !important;
+    line-height: 1.15 !important;
+}
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] * {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere;
+}
+/* Dentro de ventanas (detalle de estrategia con 4-5 métricas en fila): más chicas. */
+div[role="dialog"] [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
+div[role="dialog"] [data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
+div[role="dialog"] [data-testid="stMetricDelta"] { font-size: 0.72rem !important; }
 .stTabs [data-baseweb="tab-list"] { gap: 4px; background: transparent; }
 .stTabs [data-baseweb="tab"] {
     border-radius: 8px; font-size: 12px; color: #7B8494;
