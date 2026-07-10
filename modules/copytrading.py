@@ -7,11 +7,11 @@ from utils.db_utils import get_perfil
 from utils.copytrading_utils import (
     INVERSIONISTAS, get_price_return, normalizar_holdings, rendimiento_inversionista,
     pesos_portafolio, analizar_inversionista, riesgo_cartera, match_perfil,
-    movimientos_experto,
+    movimientos_experto, REPORTE_ANTERIOR, TRIMESTRE_ACTUAL, TRIMESTRE_ANTERIOR,
 )
 from utils.db_utils import (
     save_copy_strategy, load_copy_strategies, delete_copy_strategy,
-    save_copy_purchase, load_copy_purchases, delete_copy_purchase,
+    save_copy_purchase, load_copy_purchases, delete_copy_detalle,
     posiciones_copy, registrar_venta_copy,
 )
 from utils.comisiones import comision_desde_perfil
@@ -212,378 +212,268 @@ def _get_investor(investor_id):
     return None
 
 
+def _plan_copy(eid, inv, fx):
+    """(filas, valor_total_usd). Cada fila: ticker, pesoQ1, pesoQ2 (meta), tienes,
+    tu_peso, mov (+comprar/−vender en acciones ENTERAS), precio. La MISMA base
+    la usan la tabla informativa y el rebalanceo, así van siempre consistentes."""
+    posiciones = {p["ticker"]: p for p in posiciones_copy(eid) if p["titulos"] > 0}
+    cur = dict(normalizar_holdings(inv["holdings"]))
+    prev = REPORTE_ANTERIOR.get(inv["id"])
+    old = dict(normalizar_holdings(prev)) if prev else {}
+    tickers = set(cur) | set(posiciones)
+    precios = {tk: (get_price_return(tk)["precio"] or posiciones.get(tk, {}).get("avg_cost_usd") or 0)
+               for tk in tickers}
+    total_val = sum(posiciones[tk]["titulos"] * precios[tk] for tk in posiciones)
+    filas = []
+    for tk in tickers:
+        px = precios[tk]
+        held = posiciones.get(tk, {}).get("titulos", 0)
+        tu_peso = (held * px / total_val * 100) if total_val > 0 else 0.0
+        tgt_w = cur.get(tk, 0.0)
+        tgt_shares = int(round(total_val * tgt_w / 100 / px)) if (tgt_w > 0 and px > 0 and total_val > 0) else 0
+        filas.append({"ticker": tk, "pesoQ1": old.get(tk), "pesoQ2": tgt_w,
+                      "tienes": held, "tu_peso": tu_peso, "mov": tgt_shares - held, "precio": px})
+    filas.sort(key=lambda f: (-f["pesoQ2"], -f["tienes"]))
+    return filas, total_val
+
+
+def _tabla_copy(inv, filas):
+    """Una sola tabla informativa: pesos del experto (antes/ahora), lo que tienes
+    y el MOVIMIENTO que te toca (verde=comprar, rojo=vender, gris=nada)."""
+    col_q1, col_q2 = f"Peso {TRIMESTRE_ANTERIOR}", f"Peso {TRIMESTRE_ACTUAL}"
+    data = [{
+        "Acción": f["ticker"],
+        col_q1: f["pesoQ1"] if f["pesoQ1"] is not None else float("nan"),
+        col_q2: f["pesoQ2"],
+        "Tienes": f["tienes"],
+        "Tu peso": f["tu_peso"],
+        "Movimiento": f["mov"],
+    } for f in filas]
+    df = pd.DataFrame(data)
+
+    def _color_mov(col):
+        out = []
+        for v in col:
+            if v > 0:
+                out.append("background-color:#E3F7EF;color:#1D9E75;font-weight:700")
+            elif v < 0:
+                out.append("background-color:#FDECEC;color:#A32D2D;font-weight:700")
+            else:
+                out.append("color:#C3C9D6")
+        return out
+
+    def _fmt_mov(v):
+        return f"+{int(v)}" if v > 0 else (f"{int(v)}" if v < 0 else "—")
+
+    styler = (df.style
+              .format({col_q1: "{:.0f}%", col_q2: "{:.0f}%", "Tu peso": "{:.0f}%",
+                       "Movimiento": _fmt_mov}, na_rep="—")
+              .apply(_color_mov, subset=["Movimiento"]))
+    st.dataframe(styler, hide_index=True, use_container_width=True,
+                 height=min(38 * (len(df) + 1), 460))
+
+
+@st.dialog("💵 Invertir un monto")
+def _dialog_invertir(e, inv, fx):
+    """Reparte un monto entre las posiciones del experto (acciones ENTERAS) y
+    guarda la compra. Para arrancar o agregar dinero a la cartera."""
+    eid = e["id"]
+    holds = normalizar_holdings(inv["holdings"])
+    c1, c2 = st.columns(2)
+    monto_mxn = c1.number_input("¿Cuánto invertir? (MXN)", min_value=100.0, value=50000.0,
+                                step=500.0, format="%.2f", key=f"inv_m_{eid}")
+    tc = c2.number_input("Tipo de cambio", min_value=1.0, value=fx, step=0.01,
+                         format="%.4f", key=f"inv_tc_{eid}")
+    monto_usd = monto_mxn / tc
+    detalle, filas = [], []
+    for tk, peso in holds:
+        px = get_price_return(tk)["precio"]
+        acc = int(monto_usd * peso / 100 // px) if px else 0
+        if acc > 0:
+            detalle.append({"ticker": tk, "titulos": acc, "precio_usd": px})
+        filas.append({"Acción": tk, "Peso": f"{peso:.0f}%",
+                      "Precio USD": f"${px:,.2f}" if px else "—", "Acciones": acc,
+                      "≈ MXN": f"${acc * (px or 0) * tc:,.0f}"})
+    usado = sum(d["titulos"] * d["precio_usd"] for d in detalle)
+    st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True,
+                 height=min(38 * (len(filas) + 1), 360))
+    st.caption(f"Solo **acciones enteras** (SIC). Usarás ≈ ${usado * tc:,.0f} MXN; "
+               f"sobrante ≈ ${(monto_usd - usado) * tc:,.0f} MXN. El precio real de cada compra "
+               "lo puedes ajustar después, acción por acción.")
+    if st.button("💾 Guardar compra", type="primary", use_container_width=True):
+        if not detalle:
+            st.warning("El monto no alcanza ni para una acción entera. Aumenta el monto.")
+        else:
+            save_copy_purchase(eid, date.today(), monto_mxn, tc, detalle)
+            invalidar_resumen()
+            st.success("✅ Compra guardada.")
+            st.rerun()
+
+
+@st.dialog("🔄 Rebalancear a la meta")
+def _dialog_rebalanceo(e, inv, fx):
+    """TODAS las órdenes (acciones enteras) para igualar los pesos del experto,
+    en un solo paso. Ventas → Resultados."""
+    eid = e["id"]
+    filas, total_val = _plan_copy(eid, inv, fx)
+    if total_val <= 0:
+        st.info("Aún no tienes posiciones. Usa 'Invertir un monto' primero.")
+        return
+    ordenes = [(f["ticker"], f["mov"], f["precio"]) for f in filas if f["mov"] != 0]
+    if not ordenes:
+        st.success("✅ Ya estás alineado con la meta del experto. Nada que rebalancear.")
+        return
+    st.caption(f"Órdenes para igualar a {inv['nombre']} (acciones enteras · SIC). "
+               "**Se ejecutan TODAS al confirmar** — no tienes que picarle varias veces.")
+    for tk, mov, px in ordenes:
+        verbo, col = ("Comprar", GREEN) if mov > 0 else ("Vender", RED)
+        st.markdown(
+            f"<div style='padding:6px 0;border-bottom:1px solid #F0F2F8;font-size:13px;'>"
+            f"<b style='color:{col};'>{verbo} {abs(mov)}</b> {tk} "
+            f"<span style='color:#9DA5B8;'>≈ ${abs(mov) * px * fx:,.0f} MXN</span></div>",
+            unsafe_allow_html=True)
+    st.caption("Precios de mercado hoy. Las ganancias/pérdidas de las ventas van a Resultados.")
+    if st.button("✅ Confirmar todas las órdenes", type="primary", use_container_width=True):
+        for tk, mov, px in ordenes:
+            if mov < 0:
+                registrar_venta_copy(eid, tk, date.today(), -mov, px, fx,
+                                     comision_desde_perfil(-mov * px * fx))
+            else:
+                save_copy_purchase(eid, date.today(), mov * px * fx, fx,
+                                   [{"ticker": tk, "titulos": mov, "precio_usd": px}])
+        invalidar_resumen()
+        st.success("✅ Rebalanceo aplicado (todas las órdenes). Revisa tus posiciones y Resultados.")
+        st.rerun()
+
+
+def _detalle_ticker(eid, tk, held, pos, compras, fx):
+    """Dentro del desplegable de un ticker: tus compras (con borrar) + comprar/vender."""
+    px_now = get_price_return(tk)["precio"] or (pos["avg_cost_usd"] if pos else 0)
+    hay = False
+    for cp in compras:
+        for d in cp["detalle"]:
+            if d["ticker"] != tk:
+                continue
+            hay = True
+            rend = (px_now / d["precio_usd"] - 1) * 100 if d["precio_usd"] else 0
+            col = GREEN if rend >= 0 else RED
+            cc1, cc2 = st.columns([5, 1])
+            cc1.markdown(
+                f"<div style='font-size:12.5px;padding-top:6px;'>{str(cp['fecha'])[:10]} · "
+                f"{d['titulos']} acc · ${d['precio_usd']:,.2f} USD · "
+                f"<b style='color:{col};'>{rend:+.1f}%</b></div>", unsafe_allow_html=True)
+            if cc2.button("🗑️", key=f"delc_{eid}_{d['id']}", help="Borrar esta compra"):
+                delete_copy_detalle(d["id"])
+                invalidar_resumen()
+                st.rerun()
+    if not hay:
+        st.caption("Aún no tienes compras de esta acción.")
+
+    tab_c, tab_v = st.tabs(["➕ Comprar", "➖ Vender"])
+    with tab_c:
+        with st.form(f"buy_{eid}_{tk}", clear_on_submit=True):
+            b1, b2 = st.columns(2)
+            f_b = b1.date_input("Fecha", value=date.today(), max_value=date.today(), key=f"bf_{eid}_{tk}")
+            n_b = b2.number_input("Acciones (enteras)", min_value=1, value=1, step=1, key=f"bn_{eid}_{tk}")
+            p_b = b1.number_input("Precio (USD)", min_value=0.01,
+                                  value=round(px_now, 2) if px_now else 1.0, step=0.01,
+                                  format="%.2f", key=f"bp_{eid}_{tk}")
+            tc_b = b2.number_input("TC (MXN/USD)", min_value=1.0, value=fx, step=0.01,
+                                   format="%.4f", key=f"btc_{eid}_{tk}")
+            if st.form_submit_button(f"➕ Comprar {tk}", use_container_width=True):
+                save_copy_purchase(eid, f_b, int(n_b) * float(p_b) * float(tc_b), float(tc_b),
+                                   [{"ticker": tk, "titulos": int(n_b), "precio_usd": float(p_b)}])
+                invalidar_resumen()
+                st.success(f"✅ Compraste {int(n_b)} de {tk}.")
+                st.rerun()
+    with tab_v:
+        if held <= 0:
+            st.caption("No tienes acciones de esta para vender.")
+        else:
+            with st.form(f"sell_{eid}_{tk}", clear_on_submit=True):
+                s1, s2 = st.columns(2)
+                f_v = s1.date_input("Fecha", value=date.today(), max_value=date.today(), key=f"sf_{eid}_{tk}")
+                n_v = s2.number_input("Acciones", min_value=1, max_value=int(held), value=int(held),
+                                      step=1, key=f"sn_{eid}_{tk}")
+                p_v = s1.number_input("Precio (USD)", min_value=0.01, value=round(px_now, 2),
+                                      step=0.01, format="%.2f", key=f"sp_{eid}_{tk}")
+                tc_v = s2.number_input("TC (MXN/USD)", min_value=1.0, value=fx, step=0.01,
+                                       format="%.4f", key=f"stc_{eid}_{tk}")
+                st.caption("La comisión se calcula con el % de tu perfil.")
+                if st.form_submit_button(f"➖ Vender {tk}", type="primary", use_container_width=True):
+                    com = comision_desde_perfil(int(n_v) * float(p_v) * float(tc_v))
+                    r = registrar_venta_copy(eid, tk, f_v, int(n_v), float(p_v), float(tc_v), com)
+                    if r["ok"]:
+                        invalidar_resumen()
+                        g = r["ganancia"]
+                        signo = "ganancia" if g >= 0 else "pérdida"
+                        st.success(f"✅ Vendiste {int(n_v)} de {tk} · {signo} ${abs(g):,.2f} MXN → Resultados.")
+                        st.rerun()
+                    else:
+                        st.warning(r["msg"])
+
+
+def _operar_tickers(e, inv, fx):
+    """Lista de las acciones de la cartera; cada una se despliega para operar."""
+    eid = e["id"]
+    _seccion("Opera cada acción", PURPLE)
+    st.caption("Toca una acción para ver tus compras y comprar o vender solo esa.")
+    posiciones = {p["ticker"]: p for p in posiciones_copy(eid)}
+    orden_tks = [t for t, _ in normalizar_holdings(inv["holdings"])]
+    for tk, p in posiciones.items():
+        if p["titulos"] > 0 and tk not in orden_tks:
+            orden_tks.append(tk)
+    compras = load_copy_purchases(eid)
+    for tk in orden_tks:
+        p = posiciones.get(tk)
+        held = p["titulos"] if p else 0
+        extra = ""
+        if p and held > 0:
+            px = get_price_return(tk)["precio"] or p["avg_cost_usd"]
+            rp = (px / p["avg_cost_usd"] - 1) * 100 if p["avg_cost_usd"] else 0
+            extra = f" · {rp:+.0f}%"
+        etiqueta = f"{tk} · {held} acción(es){extra}" if held > 0 else f"{tk} · sin comprar"
+        with st.expander(etiqueta):
+            _detalle_ticker(eid, tk, held, p, compras, fx)
+
+
 def _detalle_copy(e: dict):
-    st.markdown("""
-    <style>
-    div[data-testid="stExpanderDetails"] [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-    div[data-testid="stExpanderDetails"] [data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
-    div[data-testid="stExpanderDetails"] [data-testid="stMetricDelta"] { font-size: 0.72rem !important; }
-    </style>
-    """, unsafe_allow_html=True)
     eid = e["id"]
     inv = _get_investor(e["investor_id"])
     if not inv:
         st.warning("No se encontró la cartera de este inversionista.")
         return
-    holds = normalizar_holdings(inv["holdings"])
-    fx_hoy = get_tipo_cambio_actual()
+    fx = get_tipo_cambio_actual()
 
-    # ── Movimientos del experto (nuevo reporte trimestral) ──
-    _seccion_movimientos_experto(inv)
+    mv = movimientos_experto(inv)
+    if mv and mv["hay"]:
+        st.markdown(
+            f"<div style='font-size:12.5px;color:{PURPLE};font-weight:600;'>"
+            f"🔔 {inv['nombre']} ajustó su cartera en el reporte {TRIMESTRE_ACTUAL} "
+            f"(vs {TRIMESTRE_ANTERIOR}).</div>"
+            "<div style='font-size:11px;color:#9DA5B8;margin-bottom:6px;'>"
+            "La columna <b>Movimiento</b> te dice qué comprar (verde) o vender (rojo) para seguir replicándolo.</div>",
+            unsafe_allow_html=True)
 
-    # ── Configurar inversión ──
-    _seccion("Invertir en esta cartera", GREEN)
-    c1, c2 = st.columns(2)
-    monto_mxn = c1.number_input("¿Cuánto quieres invertir? (MXN)", min_value=100.0,
-                                value=50000.0, step=500.0, format="%.2f", key=f"cm_{eid}")
-    tc = c2.number_input("Tipo de cambio (MXN/USD)", min_value=1.0, value=fx_hoy,
-                         step=0.01, format="%.4f", key=f"ctc_{eid}")
-    monto_usd = monto_mxn / tc
-    st.caption(f"Equivale a ≈ \\${monto_usd:,.2f} USD para distribuir entre las 10 posiciones.")
+    # 1) Tabla informativa (todo comparado en un solo lugar)
+    filas, _total = _plan_copy(eid, inv, fx)
+    _tabla_copy(inv, filas)
+    st.caption("Pesos 13F representativos/ilustrativos (trimestrales, con retraso). "
+               "El 'Movimiento' reparte tu valor actual en acciones enteras (SIC).")
 
-    # Distribución por peso → acciones enteras
-    filas = []
-    total_usado_usd = 0.0
-    detalle = []
-    for tk, peso in holds:
-        pr = get_price_return(tk)
-        precio = pr["precio"]
-        if not precio:
-            filas.append({"Acción": tk, "Peso": f"{peso:.1f}%", "Precio USD": "—", "Precio MXN": "—",
-                          "Acciones": 0, "Inversión USD": "—", "Inversión MXN": "—",
-                          "Precio compra (MXN)": None})
-            continue
-        alloc_usd = monto_usd * peso / 100
-        acciones = int(alloc_usd // precio)
-        costo_usd = acciones * precio
-        total_usado_usd += costo_usd
-        detalle.append({"ticker": tk, "titulos": acciones, "precio_usd": precio})
-        filas.append({"Acción": tk, "Peso": f"{peso:.1f}%",
-                      "Precio USD": f"${precio:,.2f}", "Precio MXN": f"${precio*tc:,.2f}",
-                      "Acciones": acciones, "Inversión USD": f"${costo_usd:,.2f}",
-                      "Inversión MXN": f"${costo_usd*tc:,.2f}",
-                      "Precio compra (MXN)": round(precio * tc, 2)})
-    df = pd.DataFrame(filas)
-    col_cfg = {
-        "Acciones": st.column_config.NumberColumn("Acciones", format="%d"),
-        "Precio compra (MXN)": st.column_config.NumberColumn(
-            "✏️ Precio compra (MXN)", format="%.2f", min_value=0.0,
-            help="Edítalo con el precio REAL al que compraste cada acción (en pesos)"),
-    }
-    edited = st.data_editor(
-        df, column_config=col_cfg, hide_index=True, use_container_width=True,
-        height=min(38 * (len(df) + 1), 420), key=f"editor_copy_{eid}",
-        disabled=["Acción", "Peso", "Precio USD", "Precio MXN", "Acciones",
-                  "Inversión USD", "Inversión MXN"],
-    )
-    st.caption("✏️ Solo la columna **Precio compra (MXN)** es editable: pon el precio real al que "
-               "compraste cada acción (una cosa es la teoría y otra tu ejecución real). Por defecto trae "
-               "el precio actual en pesos; ese valor es el que se guarda como tu costo.")
+    # 2) Acciones globales (en modales, para no alargar la pantalla)
+    a1, a2 = st.columns(2)
+    if a1.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
+        _dialog_invertir(e, inv, fx)
+    if a2.button("🔄 Rebalancear a la meta", key=f"reb_btn_{eid}", use_container_width=True,
+                 help="Todas las compras/ventas para igualar sus pesos, en un solo paso"):
+        _dialog_rebalanceo(e, inv, fx)
 
-    # Recalcular detalle y total con el precio de compra real editado
-    edit_map = {row["Acción"]: row["Precio compra (MXN)"] for _, row in edited.iterrows()}
-    detalle_real = []
-    total_real_usd = 0.0
-    for d in detalle:
-        pc_mxn = edit_map.get(d["ticker"])
-        pc_usd = (pc_mxn / tc) if (pc_mxn and not pd.isna(pc_mxn) and pc_mxn > 0) else d["precio_usd"]
-        detalle_real.append({"ticker": d["ticker"], "titulos": d["titulos"], "precio_usd": pc_usd})
-        total_real_usd += d["titulos"] * pc_usd
-    detalle = detalle_real
+    # 3) Operar acción por acción (desplegables compactos)
+    _operar_tickers(e, inv, fx)
 
-    sobrante_usd = monto_usd - total_real_usd
-    cS1, cS2, cS3 = st.columns(3)
-    cS1.metric("Total a invertir", f"${total_real_usd*tc:,.2f} MXN", delta=f"${total_real_usd:,.2f} USD", delta_color="off")
-    cS2.metric("Sobrante (sin asignar)", f"${sobrante_usd*tc:,.2f} MXN", delta=f"${sobrante_usd:,.2f} USD", delta_color="off")
-    cS3.metric("Posiciones a comprar", f"{sum(1 for d in detalle if d['titulos']>0)}")
-
-    if st.button("💾 Guardar y realizar la compra de todas las acciones en tu casa de bolsa",
-                 type="primary", key=f"copy_save_{eid}", use_container_width=True):
-        if not detalle or total_real_usd <= 0:
-            st.warning("El monto no alcanza para comprar al menos una acción. Aumenta la inversión.")
-        else:
-            save_copy_purchase(eid, date.today(), monto_mxn, tc, detalle)
-            st.success("✅ Compra guardada con tus precios reales. Recuerda ejecutar estas órdenes en tu casa de bolsa.")
-            st.rerun()
-
-    # ── Tus posiciones + rebalanceo + venta por posición ──
-    _seccion_posiciones_rebalanceo(e, inv, fx_hoy)
-
-    # ── Historial ──
-    _seccion("Historial de compras", PURPLE)
-    compras = load_copy_purchases(eid)
-    if not compras:
-        st.caption("Aún no has guardado ninguna compra de esta cartera.")
-    else:
-        for cp in compras:
-            _bloque_compra(cp)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    if st.button("🗑️ Quitar de mi estrategia", key=f"copy_del_{eid}",
-                 help="Borra esta cartera con todo su historial de compras"):
+    # 4) Quitar la cartera
+    st.markdown("---")
+    if st.button("🗑️ Quitar esta cartera de mis estrategias", key=f"copy_del_{eid}"):
         delete_copy_strategy(eid)
         st.rerun()
-
-
-def _seccion_movimientos_experto(inv):
-    """Muestra qué movió el experto en su último reporte 13F (compró/vendió/ajustó)
-    y qué haría el cliente para seguir replicándolo. El cliente decide."""
-    mv = movimientos_experto(inv)
-    if not mv or not mv["hay"]:
-        return
-    nombre = inv["nombre"]
-
-    def _chips(items, fmt):
-        return " ".join(
-            f"<span style='display:inline-block;background:{'#E3F7EF' if fmt=='buy' else '#FDECEC'};"
-            f"color:{GREEN if fmt=='buy' else RED};font-size:12px;font-weight:600;"
-            f"border-radius:8px;padding:2px 8px;margin:2px 3px 2px 0;'>{x}</span>"
-            for x in items)
-
-    comprar = [f"{t} · nueva" for t, _ in mv["anadidas"]] + \
-              [f"{t} {o:.0f}%→{c:.0f}%" for t, o, c in mv["subieron"]]
-    vender = [f"{t} · salió" for t, _ in mv["quitadas"]] + \
-             [f"{t} {o:.0f}%→{c:.0f}%" for t, o, c in mv["bajaron"]]
-
-    bloques = ""
-    if comprar:
-        bloques += (f"<div style='margin-top:8px;'><span style='font-size:12px;font-weight:700;color:{GREEN};'>"
-                    f"🟢 Compró / aumentó</span><div style='margin-top:3px;'>{_chips(comprar, 'buy')}</div>"
-                    f"<div style='font-size:11px;color:#9DA5B8;'>→ para replicarlo, considera comprar estas.</div></div>")
-    if vender:
-        bloques += (f"<div style='margin-top:10px;'><span style='font-size:12px;font-weight:700;color:{RED};'>"
-                    f"🔴 Vendió / redujo</span><div style='margin-top:3px;'>{_chips(vender, 'sell')}</div>"
-                    f"<div style='font-size:11px;color:#9DA5B8;'>→ para replicarlo, considera vender/recortar estas.</div></div>")
-
-    st.markdown(f"""
-    <div style="background:#F4F3FF;border:1px solid #C9C2FF;border-radius:12px;padding:14px 16px;margin:4px 0 10px;">
-        <div style="font-size:13px;font-weight:700;color:{PURPLE};">
-            🔔 {nombre} ajustó su cartera · nuevo reporte {mv['trimestre']}
-            <span style="font-weight:400;color:#9DA5B8;">(vs {mv['anterior']})</span></div>
-        {bloques}
-        <div style="font-size:11px;color:#4A5066;margin-top:10px;">
-            <b>Tú decides si rebalancear.</b> Usa "Invertir" para comprar y "Vender una posición" (abajo) para vender.</div>
-        <div style="font-size:10px;color:#9DA5B8;font-style:italic;margin-top:6px;">
-            Movimientos representativos con fines ilustrativos, basados en reportes 13F públicos
-            (trimestrales, con retraso). Verifica en fuentes oficiales antes de operar.</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-@st.dialog("🔄 Rebalancear a la meta")
-def _dialog_rebalanceo(eid, inv, fx):
-    """Calcula las órdenes (acciones ENTERAS) para igualar los pesos del experto,
-    repartiendo tu valor actual. El cliente confirma; ventas → Resultados."""
-    posiciones = {p["ticker"]: p for p in posiciones_copy(eid) if p["titulos"] > 0}
-    target = dict(normalizar_holdings(inv["holdings"]))
-    tickers = set(posiciones) | set(target)
-    precios = {}
-    for tk in tickers:
-        pr = get_price_return(tk)
-        precios[tk] = pr["precio"] or (posiciones.get(tk, {}).get("avg_cost_usd") or 0)
-    total_val = sum(posiciones[tk]["titulos"] * precios[tk] for tk in posiciones)
-    if total_val <= 0:
-        st.info("Aún no tienes posiciones para rebalancear. Primero invierte en la cartera.")
-        return
-
-    ordenes = []  # (accion, ticker, titulos, precio_usd)
-    for tk in sorted(tickers):
-        px = precios[tk]
-        if px <= 0:
-            continue
-        held = posiciones.get(tk, {}).get("titulos", 0)
-        tgt_w = target.get(tk, 0.0)
-        tgt_shares = int(round(total_val * tgt_w / 100 / px)) if tgt_w > 0 else 0
-        delta = tgt_shares - held
-        if delta > 0:
-            ordenes.append(("comprar", tk, delta, px))
-        elif delta < 0:
-            ordenes.append(("vender", tk, -delta, px))
-
-    if not ordenes:
-        st.success("✅ Ya estás alineado con la meta del experto. Nada que rebalancear.")
-        return
-
-    st.caption(f"Para igualar los pesos de {inv['nombre']} repartiendo tu valor actual "
-               f"(≈ ${total_val * fx:,.0f} MXN). Solo **acciones enteras** (mercado mexicano · SIC).")
-    for accion, tk, n, px in ordenes:
-        col = GREEN if accion == "comprar" else RED
-        verbo = "Comprar" if accion == "comprar" else "Vender"
-        st.markdown(
-            f"<div style='padding:6px 0;border-bottom:1px solid #F0F2F8;font-size:13px;'>"
-            f"<b style='color:{col};'>{verbo} {n}</b> {tk} "
-            f"<span style='color:#9DA5B8;'>≈ ${n * px * fx:,.0f} MXN</span></div>",
-            unsafe_allow_html=True)
-    st.caption("Los precios son de mercado hoy. Las ganancias/pérdidas de las ventas van a "
-               "Resultados › Rendimiento realizado.")
-    if st.button("✅ Confirmar rebalanceo", type="primary", use_container_width=True):
-        for accion, tk, n, px in ordenes:
-            if accion == "vender":
-                com = comision_desde_perfil(n * px * fx)
-                registrar_venta_copy(eid, tk, date.today(), n, px, fx, com)
-            else:
-                save_copy_purchase(eid, date.today(), n * px * fx, fx,
-                                   [{"ticker": tk, "titulos": n, "precio_usd": px}])
-        invalidar_resumen()
-        st.success("✅ Rebalanceo aplicado. Revisa tus posiciones y tus Resultados.")
-        st.rerun()
-
-
-def _seccion_posiciones_rebalanceo(e, inv, fx):
-    """Vista AGREGADA por acción: cuánto tienes, tu peso vs el peso meta del
-    experto (rebalanceo) y venta posición por posición → va a Resultados."""
-    eid = e["id"]
-    posiciones = [p for p in posiciones_copy(eid) if p["titulos"] > 0]
-    if not posiciones:
-        return
-    _seccion("Tus posiciones y rebalanceo", GOLD)
-
-    target = dict(normalizar_holdings(inv["holdings"]))  # ticker → peso meta %
-
-    # Valor actual de cada posición (para calcular tu peso real)
-    datos, total_val = [], 0.0
-    for p in posiciones:
-        pr = get_price_return(p["ticker"])
-        px = pr["precio"] or p["avg_cost_usd"]
-        val_usd = p["titulos"] * px
-        total_val += val_usd
-        datos.append({"p": p, "px": px, "val_usd": val_usd})
-
-    filas, sugerencias = [], []
-    for d in datos:
-        p = d["p"]
-        cur_w = (d["val_usd"] / total_val * 100) if total_val else 0
-        tgt_w = target.get(p["ticker"], 0.0)
-        drift = cur_w - tgt_w
-        pl_pct = (d["px"] / p["avg_cost_usd"] - 1) * 100 if p["avg_cost_usd"] else 0
-        if tgt_w == 0:
-            sug = "El experto ya no la pondera → considera vender"
-            sugerencias.append(f"revisa {p['ticker']}")
-        elif drift > 5:
-            sug = "Sobreponderada → recorta un poco"
-            sugerencias.append(f"recorta {p['ticker']}")
-        elif drift < -5:
-            sug = "Subponderada → aumenta"
-            sugerencias.append(f"aumenta {p['ticker']}")
-        else:
-            sug = "En línea ✓"
-        filas.append({"Acción": p["ticker"], "Tienes": p["titulos"],
-                      "Tu peso": cur_w, "Peso meta": tgt_w,
-                      "Rend.": pl_pct, "Sugerencia": sug})
-    df = pd.DataFrame(filas)
-    st.dataframe(
-        df.style.format({"Tu peso": "{:.1f}%", "Peso meta": "{:.1f}%", "Rend.": "{:+.1f}%"}),
-        hide_index=True, use_container_width=True, height=min(38 * (len(df) + 1), 460))
-
-    nombre_exp = e.get("nombre") or "el experto"
-    if sugerencias:
-        st.info(f"🔄 **Para seguir replicando a {nombre_exp}:** " + " · ".join(sugerencias)
-                + ". El 'peso meta' viene de su último reporte 13F (trimestral).")
-    else:
-        st.success(f"✅ Tu cartera está alineada con la de {nombre_exp}.")
-
-    # ── Rebalanceo en un clic ──
-    if st.button(f"🔄 Rebalancear a la meta de {nombre_exp}", key=f"copy_rebal_{eid}",
-                 use_container_width=True,
-                 help="Calcula qué comprar y vender (acciones enteras) para igualar sus pesos"):
-        _dialog_rebalanceo(eid, inv, fx)
-
-    # ── Compra posición por posición ──
-    st.markdown("**Comprar más de una posición** — para aumentar una o agregar la que sugiere el experto.")
-    target_tks = [t for t, _ in normalizar_holdings(inv["holdings"])]
-    tk_buy = st.selectbox("¿Qué acción quieres comprar?", target_tks, key=f"copy_buy_tk_{eid}")
-    px_buy = get_price_return(tk_buy)["precio"] or 0
-    with st.form(f"copy_buy_form_{eid}", clear_on_submit=True):
-        cb1, cb2, cb3 = st.columns(3)
-        fecha_b = cb1.date_input("Fecha", value=date.today(), max_value=date.today(), key=f"cb_f_{eid}")
-        cant_b = cb2.number_input("Acciones (enteras)", min_value=1, value=1, step=1, key=f"cb_n_{eid}")
-        precio_b = cb3.number_input("Precio compra (USD)", min_value=0.01,
-                                    value=round(px_buy, 2) if px_buy else 1.0, step=0.01,
-                                    format="%.2f", key=f"cb_p_{eid}")
-        tc_b = st.number_input("Tipo de cambio (MXN/USD)", min_value=1.0, value=fx,
-                               step=0.01, format="%.4f", key=f"cb_tc_{eid}")
-        comprar_pos = st.form_submit_button("➕ Comprar esta acción", use_container_width=True)
-    if comprar_pos:
-        monto = int(cant_b) * float(precio_b) * float(tc_b)
-        save_copy_purchase(eid, fecha_b, monto, float(tc_b),
-                           [{"ticker": tk_buy, "titulos": int(cant_b), "precio_usd": float(precio_b)}])
-        invalidar_resumen()
-        st.success(f"✅ Compraste {int(cant_b)} acción(es) de {tk_buy}.")
-        st.rerun()
-
-    # ── Venta posición por posición ──
-    st.markdown("**Vender una posición** — la ganancia o pérdida se registra en tus Resultados.")
-    tickers = [p["ticker"] for p in posiciones]
-    tk_sel = st.selectbox("¿Qué acción quieres vender?", tickers, key=f"copy_sell_tk_{eid}")
-    psel = next(p for p in posiciones if p["ticker"] == tk_sel)
-    px_now = get_price_return(tk_sel)["precio"] or psel["avg_cost_usd"]
-    with st.form(f"copy_sell_form_{eid}", clear_on_submit=True):
-        cs1, cs2, cs3 = st.columns(3)
-        fecha_v = cs1.date_input("Fecha", value=date.today(), max_value=date.today(), key=f"cs_f_{eid}")
-        cant = cs2.number_input("Acciones", min_value=1, max_value=int(psel["titulos"]),
-                                value=int(psel["titulos"]), step=1, key=f"cs_n_{eid}")
-        precio_v = cs3.number_input("Precio venta (USD)", min_value=0.01, value=round(px_now, 2),
-                                    step=0.01, format="%.2f", key=f"cs_p_{eid}")
-        tc_v = st.number_input("Tipo de cambio (MXN/USD)", min_value=1.0, value=fx,
-                               step=0.01, format="%.4f", key=f"cs_tc_{eid}")
-        st.caption(f"Costo promedio de {tk_sel}: ≈ ${psel['avg_cost_usd']:,.2f} USD por acción. "
-                   "La comisión se calcula con el % de tu perfil.")
-        vender = st.form_submit_button("💵 Confirmar venta", type="primary", use_container_width=True)
-    if vender:
-        com = comision_desde_perfil(int(cant) * float(precio_v) * float(tc_v))
-        r = registrar_venta_copy(eid, tk_sel, fecha_v, int(cant), float(precio_v), float(tc_v), com)
-        if r["ok"]:
-            invalidar_resumen()
-            g = r["ganancia"]
-            signo = "ganancia" if g >= 0 else "pérdida"
-            st.success(f"✅ Vendiste {int(cant)} de {tk_sel} · {signo} de ${abs(g):,.2f} MXN. "
-                       "Ya aparece en Resultados › Rendimiento realizado.")
-            st.rerun()
-        else:
-            st.warning(r["msg"])
-
-
-def _bloque_compra(cp):
-    tc = cp["tipo_cambio"]
-    invertido_usd = sum(d["titulos"] * d["precio_usd"] for d in cp["detalle"])
-    # Valor actual con precios en vivo
-    valor_usd = 0.0
-    filas = []
-    for d in cp["detalle"]:
-        pr = get_price_return(d["ticker"])
-        precio_hoy = pr["precio"] or d["precio_usd"]
-        val = d["titulos"] * precio_hoy
-        valor_usd += val
-        pl_pct = (precio_hoy / d["precio_usd"] - 1) * 100 if d["precio_usd"] else 0
-        filas.append({"Acción": d["ticker"], "Acciones": d["titulos"],
-                      "Precio compra": d["precio_usd"], "Precio actual": precio_hoy,
-                      "Valor USD": val, "Rend. %": pl_pct})
-    pl_usd = valor_usd - invertido_usd
-    pl_pct = (pl_usd / invertido_usd * 100) if invertido_usd else 0
-    col = GREEN if pl_usd >= 0 else RED
-
-    st.markdown(f"""
-    <div style="background:#F8F9FC;border:0.5px solid #E2E6EE;border-radius:10px;padding:10px 14px;margin-bottom:4px;
-                display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;">
-        <span style="font-size:12.5px;"><b>{str(cp['fecha'])[:10]}</b> · invertido
-            ${cp['monto_mxn']:,.2f} MXN (${invertido_usd:,.2f} USD · TC {tc:.4f})</span>
-        <span style="font-size:13px;">Valor actual: <b>${valor_usd:,.2f} USD</b> ·
-            <b style="color:{col};">{pl_pct:+.2f}%</b></span>
-    </div>
-    """, unsafe_allow_html=True)
-    df = pd.DataFrame(filas)
-    st.dataframe(
-        df.style.format({"Precio compra": "${:,.2f}", "Precio actual": "${:,.2f}",
-                         "Valor USD": "${:,.2f}", "Rend. %": "{:+.2f}%"}),
-        use_container_width=True, hide_index=True, height=min(38 * (len(df) + 1), 420),
-    )
-    cP1, cP2, cP3 = st.columns(3)
-    cP1.metric("Invertido", f"${invertido_usd*tc:,.2f} MXN", delta=f"${invertido_usd:,.2f} USD", delta_color="off")
-    cP2.metric("Valor actual", f"${valor_usd*tc:,.2f} MXN", delta=f"${valor_usd:,.2f} USD", delta_color="off")
-    cP3.metric("Ganancia / Pérdida", f"${pl_usd*tc:,.2f} MXN", delta=f"{pl_pct:+.2f}%")
-    if st.button("🗑️ Borrar esta compra", key=f"copy_delc_{cp['id']}"):
-        delete_copy_purchase(cp["id"])
-        st.rerun()
-    st.caption("El rendimiento refleja el movimiento del precio de las acciones (en USD). "
-               "El valor en pesos usa el tipo de cambio que registraste al comprar.")
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)

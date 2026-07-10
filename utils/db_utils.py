@@ -459,6 +459,22 @@ def delete_copy_purchase(compra_id: int):
     conn.close()
 
 
+def delete_copy_detalle(detalle_id: int):
+    """Borra UNA compra individual (un renglón de detalle) de una cartera copiada.
+    Si su canasta queda vacía, también la elimina."""
+    conn = _get_conn()
+    row = conn.execute("SELECT compra_id FROM detalle_copy WHERE id = ?", (detalle_id,)).fetchone()
+    conn.execute("DELETE FROM detalle_copy WHERE id = ?", (detalle_id,))
+    if row:
+        quedan = conn.execute(
+            "SELECT COUNT(*) AS n FROM detalle_copy WHERE compra_id = ?", (row["compra_id"],)
+        ).fetchone()
+        if quedan and quedan["n"] == 0:
+            conn.execute("DELETE FROM compras_copy WHERE id = ?", (row["compra_id"],))
+    conn.commit()
+    conn.close()
+
+
 def titulos_vendidos_copy(estrategia_id: int, ticker: str) -> int:
     """Acciones ya vendidas de UN ticker dentro de una cartera copiada."""
     init_db()
