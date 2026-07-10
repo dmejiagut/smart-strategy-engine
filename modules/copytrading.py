@@ -237,38 +237,55 @@ def _plan_copy(eid, inv, fx):
     return filas, total_val
 
 
-def _tabla_copy(inv, filas):
-    """Una sola tabla informativa: pesos del experto (antes/ahora), lo que tienes
-    y el MOVIMIENTO que te toca (verde=comprar, rojo=vender, gris=nada)."""
-    col_q1, col_q2 = f"Peso {TRIMESTRE_ANTERIOR}", f"Peso {TRIMESTRE_ACTUAL}"
-    data = [{
-        "Acción": f["ticker"],
-        col_q1: f["pesoQ1"] if f["pesoQ1"] is not None else float("nan"),
-        col_q2: f["pesoQ2"],
-        "Tienes": f["tienes"],
-        "Tu peso": f["tu_peso"],
-        "Movimiento": f["mov"],
-    } for f in filas]
-    df = pd.DataFrame(data)
+def _tabla_copy(inv, filas, mostrar_cambios: bool):
+    """Tabla de la cartera.
 
-    def _color_mov(col):
-        out = []
-        for v in col:
-            if v > 0:
-                out.append("background-color:#E3F7EF;color:#1D9E75;font-weight:700")
-            elif v < 0:
-                out.append("background-color:#FDECEC;color:#A32D2D;font-weight:700")
-            else:
-                out.append("color:#C3C9D6")
-        return out
+    - Estrategia NUEVA (el experto no ha cambiado desde que la copiaste): muestra
+      solo la cartera ACTUAL a replicar (peso actual · lo que tienes · tu peso).
+    - Salió un reporte NUEVO: agrega el peso del trimestre anterior y la columna
+      MOVIMIENTO (verde=comprar, rojo=vender, gris=nada) para reajustar.
+    """
+    col_now = f"Peso {TRIMESTRE_ACTUAL}"
+    if mostrar_cambios:
+        col_prev = f"Peso {TRIMESTRE_ANTERIOR}"
+        data = [{
+            "Acción": f["ticker"],
+            col_prev: f["pesoQ1"] if f["pesoQ1"] is not None else float("nan"),
+            col_now: f["pesoQ2"],
+            "Tienes": f["tienes"],
+            "Tu peso": f["tu_peso"],
+            "Movimiento": f["mov"],
+        } for f in filas]
+        df = pd.DataFrame(data)
 
-    def _fmt_mov(v):
-        return f"+{int(v)}" if v > 0 else (f"{int(v)}" if v < 0 else "—")
+        def _color_mov(col):
+            out = []
+            for v in col:
+                if v > 0:
+                    out.append("background-color:#E3F7EF;color:#1D9E75;font-weight:700")
+                elif v < 0:
+                    out.append("background-color:#FDECEC;color:#A32D2D;font-weight:700")
+                else:
+                    out.append("color:#C3C9D6")
+            return out
 
-    styler = (df.style
-              .format({col_q1: "{:.0f}%", col_q2: "{:.0f}%", "Tu peso": "{:.0f}%",
-                       "Movimiento": _fmt_mov}, na_rep="—")
-              .apply(_color_mov, subset=["Movimiento"]))
+        def _fmt_mov(v):
+            return f"+{int(v)}" if v > 0 else (f"{int(v)}" if v < 0 else "—")
+
+        styler = (df.style
+                  .format({col_prev: "{:.0f}%", col_now: "{:.0f}%", "Tu peso": "{:.0f}%",
+                           "Movimiento": _fmt_mov}, na_rep="—")
+                  .apply(_color_mov, subset=["Movimiento"]))
+    else:
+        data = [{
+            "Acción": f["ticker"],
+            col_now: f["pesoQ2"],
+            "Tienes": f["tienes"],
+            "Tu peso": f["tu_peso"],
+        } for f in filas]
+        df = pd.DataFrame(data)
+        styler = df.style.format({col_now: "{:.0f}%", "Tu peso": "{:.0f}%"}, na_rep="—")
+
     st.dataframe(styler, hide_index=True, use_container_width=True,
                  height=min(38 * (len(df) + 1), 460))
 
@@ -445,8 +462,9 @@ def _detalle_copy(e: dict):
         return
     fx = get_tipo_cambio_actual()
 
-    mv = movimientos_experto(inv)
-    if mv and mv["hay"]:
+    mv = movimientos_experto(inv, e.get("reporte_base"))
+    mostrar_cambios = bool(mv and mv["hay"])
+    if mostrar_cambios:
         st.markdown(
             f"<div style='font-size:12.5px;color:{PURPLE};font-weight:600;'>"
             f"🔔 {inv['nombre']} ajustó su cartera en el reporte {TRIMESTRE_ACTUAL} "
@@ -457,17 +475,26 @@ def _detalle_copy(e: dict):
 
     # 1) Tabla informativa (todo comparado en un solo lugar)
     filas, _total = _plan_copy(eid, inv, fx)
-    _tabla_copy(inv, filas)
-    st.caption("Pesos 13F representativos/ilustrativos (trimestrales, con retraso). "
-               "El 'Movimiento' reparte tu valor actual en acciones enteras (SIC).")
+    _tabla_copy(inv, filas, mostrar_cambios)
+    if mostrar_cambios:
+        st.caption("Pesos 13F representativos/ilustrativos (trimestrales, con retraso). "
+                   "El 'Movimiento' reparte tu valor actual en acciones enteras (SIC).")
+    else:
+        st.caption("Esta es la **cartera actual** del experto (pesos 13F representativos). "
+                   "Usa '💵 Invertir un monto' para replicarla con tu dinero. "
+                   "Cuando el experto publique un reporte nuevo, aquí te avisaré qué reajustar.")
 
     # 2) Acciones globales (en modales, para no alargar la pantalla)
-    a1, a2 = st.columns(2)
-    if a1.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
-        _dialog_invertir(e, inv, fx)
-    if a2.button("🔄 Rebalancear a la meta", key=f"reb_btn_{eid}", use_container_width=True,
-                 help="Todas las compras/ventas para igualar sus pesos, en un solo paso"):
-        _dialog_rebalanceo(e, inv, fx)
+    if mostrar_cambios:
+        a1, a2 = st.columns(2)
+        if a1.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
+            _dialog_invertir(e, inv, fx)
+        if a2.button("🔄 Reajustar al nuevo reporte", key=f"reb_btn_{eid}", use_container_width=True,
+                     help="Todas las compras/ventas para igualar su cartera nueva, en un solo paso"):
+            _dialog_rebalanceo(e, inv, fx)
+    else:
+        if st.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
+            _dialog_invertir(e, inv, fx)
 
     # 3) Operar acción por acción (desplegables compactos)
     _operar_tickers(e, inv, fx)

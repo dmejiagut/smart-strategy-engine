@@ -116,10 +116,28 @@ REPORTE_ANTERIOR = {
 }
 
 
-def movimientos_experto(inv: dict):
+def reporte_posterior_a_base(reporte_base: str | None) -> bool:
+    """¿Salió un reporte 13F NUEVO después de que el usuario copió la cartera?
+
+    `reporte_base` es el trimestre vigente cuando se creó la estrategia. Solo hay
+    novedad si esa base es ANTERIOR al reporte actual. Con los datos estáticos que
+    manejamos (dos trimestres), eso equivale a que la base sea el trimestre anterior.
+    Una base igual al trimestre actual (o desconocida) NO tiene novedades: es una
+    estrategia recién creada y no debe mostrar cambios pasados a su fecha.
+    """
+    return reporte_base == TRIMESTRE_ANTERIOR
+
+
+def movimientos_experto(inv: dict, reporte_base: str | None = None):
     """Compara el reporte 13F ACTUAL (inv['holdings']) con el ANTERIOR y devuelve
     qué AÑADIÓ, QUITÓ, AUMENTÓ o REDUJO el experto entre sus posiciones top.
-    Devuelve None si no hay reporte anterior cargado."""
+
+    Solo devuelve movimientos si salió un reporte NUEVO después de que el usuario
+    copió la cartera (ver reporte_posterior_a_base). Devuelve None en caso contrario
+    o si no hay reporte anterior cargado.
+    """
+    if not reporte_posterior_a_base(reporte_base):
+        return None
     prev = REPORTE_ANTERIOR.get(inv["id"])
     if not prev:
         return None

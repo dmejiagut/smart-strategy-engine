@@ -184,6 +184,13 @@ def init_db():
             creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
+    # Trimestre 13F vigente cuando el usuario copió la cartera (su "línea base").
+    # Solo se avisan movimientos del experto de reportes POSTERIORES a esta base;
+    # una estrategia recién creada no debe mostrar cambios pasados a su fecha.
+    try:
+        conn.execute("ALTER TABLE estrategias_copy ADD COLUMN reporte_base TEXT")
+    except Exception:
+        pass  # columna ya existe
     conn.execute("""
         CREATE TABLE IF NOT EXISTS compras_copy (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,8 +378,12 @@ def save_perfil(data: dict):
 
 # ── Estrategias de Copy Trading ────────────────────────────────────────────────
 
-def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "") -> int:
+def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
+                       reporte_base: str = "") -> int:
     init_db()
+    if not reporte_base:
+        from utils.copytrading_utils import TRIMESTRE_ACTUAL
+        reporte_base = TRIMESTRE_ACTUAL
     conn = _get_conn()
     existing = conn.execute(
         "SELECT id FROM estrategias_copy WHERE investor_id = ?", (investor_id,)
@@ -386,8 +397,8 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "") -> i
         conn.close()
         raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
-        "INSERT INTO estrategias_copy (investor_id, nombre, fondo) VALUES (?, ?, ?)",
-        (investor_id, nombre, fondo),
+        "INSERT INTO estrategias_copy (investor_id, nombre, fondo, reporte_base) VALUES (?, ?, ?, ?)",
+        (investor_id, nombre, fondo, reporte_base),
     )
     new_id = cur.lastrowid
     conn.commit()

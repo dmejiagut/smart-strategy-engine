@@ -69,8 +69,12 @@ def generar_datos_demo():
     db.save_fibra_purchase(fib_id, hoy - timedelta(days=60), 150, 28.5, 17.81)
     db.save_fibra_purchase(fib_id, hoy - timedelta(days=15), 100, 29.2, 12.17)
 
-    # 5) Copy Trading — cartera de Warren Buffett
-    copy_id = db.save_copy_strategy("buffett", "Warren Buffett", "Berkshire Hathaway")
+    # 5) Copy Trading — cartera de Warren Buffett.
+    # Ana la copió el trimestre PASADO (Q4 2025); desde entonces salió un reporte
+    # nuevo (Q1 2026), así que la demo muestra el aviso de "reajustar al nuevo reporte".
+    from utils.copytrading_utils import TRIMESTRE_ANTERIOR
+    copy_id = db.save_copy_strategy("buffett", "Warren Buffett", "Berkshire Hathaway",
+                                    reporte_base=TRIMESTRE_ANTERIOR)
     db.save_copy_purchase(copy_id, hoy - timedelta(days=40), 30000.0, TC, [
         {"ticker": "AAPL", "titulos": 3, "precio_usd": 268.0},
         {"ticker": "AXP", "titulos": 2, "precio_usd": 320.0},

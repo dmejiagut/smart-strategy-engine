@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v30"
+APP_VERSION = "VestPlan · v31"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -150,7 +150,7 @@ def _alertas_copy():
         inv = inv_by_id.get(e["investor_id"])
         if not inv:
             continue
-        mv = movimientos_experto(inv)
+        mv = movimientos_experto(inv, e.get("reporte_base"))
         if mv and mv["hay"]:
             n = (len(mv["anadidas"]) + len(mv["quitadas"])
                  + len(mv["subieron"]) + len(mv["bajaron"]))
