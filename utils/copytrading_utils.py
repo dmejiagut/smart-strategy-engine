@@ -12,64 +12,96 @@ import streamlit as st
 INVERSIONISTAS = [
     {"id": "buffett", "nombre": "Warren Buffett", "fondo": "Berkshire Hathaway",
      "estilo": "Value investing de largo plazo", "destacado": True,
+     "quien_es": "El inversionista más famoso del mundo. Lleva más de 60 años comprando "
+                 "empresas sólidas a buen precio a través de Berkshire Hathaway.",
      "holdings": [("AAPL", 26), ("AXP", 16), ("BAC", 11), ("KO", 9), ("CVX", 7),
                   ("OXY", 6), ("MCO", 4), ("KHC", 4), ("CB", 4), ("KR", 3)]},
     {"id": "wood", "nombre": "Cathie Wood", "fondo": "ARK Invest",
      "estilo": "Innovación disruptiva y tecnología", "destacado": True,
+     "quien_es": "Fundadora de ARK Invest. Apuesta fuerte por tecnología disruptiva "
+                 "(IA, cripto, genómica): gana mucho en años buenos y cae fuerte en los malos.",
      "holdings": [("TSLA", 12), ("COIN", 10), ("ROKU", 8), ("PLTR", 7), ("HOOD", 7),
                   ("RKLB", 6), ("CRSP", 6), ("PATH", 6), ("TEM", 5), ("DKNG", 5)]},
     {"id": "lilu", "nombre": "Li Lu", "fondo": "Himalaya Capital",
      "estilo": "Value concentrado (discípulo de Munger)", "destacado": True,
+     "quien_es": "Discípulo del legendario Charlie Munger. Concentra su fondo Himalaya "
+                 "en muy pocas empresas que conoce a fondo.",
      "holdings": [("GOOGL", 28), ("BAC", 24), ("BRK-B", 20), ("BABA", 18), ("OXY", 10)]},
     {"id": "dalio", "nombre": "Ray Dalio", "fondo": "Bridgewater Associates",
      "estilo": "Diversificación global / all weather", "destacado": True,
+     "quien_es": "Fundó Bridgewater, el fondo de cobertura más grande del mundo. Busca "
+                 "una cartera que aguante 'cualquier clima' económico.",
      "holdings": [("IVV", 8), ("GLD", 7), ("IEMG", 6), ("SPY", 6), ("PG", 5),
                   ("JNJ", 5), ("KO", 5), ("WMT", 5), ("COST", 5), ("META", 5)]},
     {"id": "ackman", "nombre": "Bill Ackman", "fondo": "Pershing Square",
      "estilo": "Activista concentrado", "destacado": True,
+     "quien_es": "Inversionista activista: compra pocas empresas grandes y empuja "
+                 "cambios dentro de ellas para subir su valor.",
      "holdings": [("UBER", 18), ("BN", 17), ("HLT", 15), ("CMG", 14), ("QSR", 11),
                   ("GOOG", 11), ("NKE", 8), ("HHH", 6)]},
     {"id": "munger", "nombre": "Charlie Munger", "fondo": "Daily Journal (legado)",
      "estilo": "Value extremo, cartera mínima", "destacado": True,
+     "quien_es": "El socio de toda la vida de Buffett (1924–2023). Cartera mínima: "
+                 "pocas empresas, de máxima calidad, para siempre.",
      "holdings": [("BAC", 38), ("WFC", 28), ("BABA", 18), ("USB", 12), ("POST", 4)]},
     {"id": "burry", "nombre": "Michael Burry", "fondo": "Scion Asset Management",
      "estilo": "Contrarian / deep value (cartera muy cambiante)", "destacado": True,
+     "quien_es": "Predijo la crisis hipotecaria de 2008 (su historia inspiró la película "
+                 "'The Big Short'). Contrarian: compra lo que nadie quiere.",
      "holdings": [("BABA", 22), ("JD", 18), ("BIDU", 14), ("HCA", 12), ("CI", 10),
                   ("MOH", 8), ("BP", 8), ("REAL", 8)]},
     {"id": "fisher", "nombre": "Ken Fisher", "fondo": "Fisher Investments",
      "estilo": "Crecimiento de gran capitalización", "destacado": True,
+     "quien_es": "Fundador de Fisher Investments, una de las gestoras independientes más "
+                 "grandes de EE.UU. Crecimiento en empresas gigantes.",
      "holdings": [("AAPL", 14), ("MSFT", 14), ("NVDA", 13), ("AMZN", 12), ("GOOGL", 11),
                   ("META", 10), ("AVGO", 9), ("V", 6), ("MA", 6), ("ASML", 5)]},
     {"id": "blackrock", "nombre": "BlackRock", "fondo": "BlackRock (fondos equity)",
      "estilo": "Mega-cap diversificado", "destacado": True,
+     "quien_es": "La gestora de activos más grande del planeta. Su cartera refleja a las "
+                 "mega-empresas que mueven el mercado.",
      "holdings": [("AAPL", 13), ("MSFT", 13), ("NVDA", 13), ("AMZN", 11), ("GOOGL", 10),
                   ("META", 10), ("AVGO", 9), ("BRK-B", 7), ("JPM", 7), ("LLY", 7)]},
     # ── No destacados: solo aparecen al buscar ──
     {"id": "klarman", "nombre": "Seth Klarman", "fondo": "Baupost Group",
      "estilo": "Value con enfoque en riesgo", "destacado": False,
+     "quien_es": "Autor del libro de culto 'Margin of Safety'. Value investing con "
+                 "obsesión por no perder dinero.",
      "holdings": [("LNG", 20), ("WBD", 16), ("LBTYA", 14), ("FI", 13), ("CRM", 12),
                   ("FLEX", 11), ("VEON", 8), ("WMB", 6)]},
     {"id": "tepper", "nombre": "David Tepper", "fondo": "Appaloosa Management",
      "estilo": "Oportunista / tecnología y China", "destacado": False,
+     "quien_es": "Famoso por comprar en pánicos del mercado (y dueño de los Carolina "
+                 "Panthers de la NFL). Oportunista de alto riesgo.",
      "holdings": [("BABA", 16), ("NVDA", 14), ("AMZN", 12), ("META", 12), ("MSFT", 10),
                   ("PDD", 10), ("GOOG", 10), ("ORCL", 8), ("UBER", 8)]},
     {"id": "druckenmiller", "nombre": "Stanley Druckenmiller", "fondo": "Duquesne Family Office",
      "estilo": "Macro y crecimiento", "destacado": False,
+     "quien_es": "Mano derecha histórica de George Soros. Macro: apuesta a las grandes "
+                 "tendencias de la economía.",
      "holdings": [("NVDA", 14), ("MSFT", 11), ("COHR", 10), ("NTRA", 9), ("TER", 9),
                   ("FLUT", 9), ("WMT", 8), ("MU", 8), ("KVYO", 7), ("TEVA", 7)]},
     {"id": "icahn", "nombre": "Carl Icahn", "fondo": "Icahn Enterprises",
      "estilo": "Activista", "destacado": False,
+     "quien_es": "El activista más temido de Wall Street por décadas: compra, presiona "
+                 "y transforma empresas.",
      "holdings": [("IEP", 48), ("CVI", 20), ("SWX", 12), ("BHC", 10), ("IFF", 10)]},
     {"id": "terry_smith", "nombre": "Terry Smith", "fondo": "Fundsmith",
      "estilo": "Calidad de gran capitalización", "destacado": False,
+     "quien_es": "Conocido como el 'Buffett británico'. Su regla: comprar empresas "
+                 "buenísimas, no pagar de más y no hacer nada.",
      "holdings": [("MSFT", 12), ("META", 11), ("PM", 10), ("SYK", 9), ("NVO", 9),
                   ("ADP", 8), ("IDXX", 8), ("WAT", 8), ("OTIS", 7), ("MCO", 7)]},
     {"id": "coleman", "nombre": "Chase Coleman", "fondo": "Tiger Global",
      "estilo": "Crecimiento tecnológico global", "destacado": False,
+     "quien_es": "Fundador de Tiger Global. Crecimiento tecnológico global, de Silicon "
+                 "Valley a Asia.",
      "holdings": [("MSFT", 14), ("META", 13), ("NVDA", 12), ("SE", 10), ("AMZN", 10),
                   ("GOOG", 9), ("NU", 9), ("FLUT", 8), ("SPOT", 8)]},
     {"id": "loeb", "nombre": "Daniel Loeb", "fondo": "Third Point",
      "estilo": "Event-driven / activista", "destacado": False,
+     "quien_es": "Fundador de Third Point. Invierte alrededor de cambios corporativos: "
+                 "fusiones, reestructuras y crisis de dirección.",
      "holdings": [("PCG", 12), ("AMZN", 11), ("META", 10), ("MSFT", 10), ("KKR", 9),
                   ("BABA", 8), ("TSM", 8), ("GOOG", 8), ("JCI", 8)]},
 ]

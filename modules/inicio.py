@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v38"
+APP_VERSION = "VestPlan · v39"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -1125,11 +1125,14 @@ def _resultados_posiciones(res, items, perfil):
         "meta_pct": meta_pct, "meta_cumplida": meta_cumplida,
     }
     png = generar_tarjeta_resultados(datos_tarjeta)
-    st.download_button("📤 Compartir mis logros (imagen)", data=png,
-                       file_name="vestplan_mis_logros.png", mime="image/png",
-                       use_container_width=True,
-                       help="Una tarjeta con tus logros y tu disciplina (sin mostrar tu dinero) "
-                            "para compartir por WhatsApp o redes.")
+    with st.expander("📤 Compartir mis logros (imagen)"):
+        # Vista previa: que veas la tarjeta ANTES de descargarla.
+        st.image(png, use_container_width=True)
+        st.caption("Celebra tu disciplina sin mostrar cuánto dinero tienes — "
+                   "lista para WhatsApp o redes.")
+        st.download_button("⬇ Descargar imagen", data=png,
+                           file_name="vestplan_mis_logros.png", mime="image/png",
+                           use_container_width=True, type="primary")
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     if st.session_state.pop("_auto_analizar", False) or st.button(

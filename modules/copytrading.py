@@ -116,8 +116,10 @@ def _tab_inversionistas():
         r_emoji = "🟢" if (r or 0) >= 0 else "🔴"
         match_tag = f"   ·   {emap[e['color']]} {e['nivel']}" if riesgo else f"   ·   riesgo {e['nivel']}"
         with st.expander(f"⭐ {inv['nombre']} — {inv['fondo']}   ·   {r_emoji} {r_txt} (1 año){match_tag}"):
+            quien = inv.get("quien_es", "")
             st.markdown(f"""
-            <div style="font-size:12px;color:#9DA5B8;margin-bottom:8px;">{inv['estilo']}</div>
+            <div style="font-size:12.5px;color:#4A5066;line-height:1.5;margin-bottom:3px;">{quien}</div>
+            <div style="font-size:12px;color:#9DA5B8;margin-bottom:8px;">🧭 Estilo: {inv['estilo']}</div>
             """, unsafe_allow_html=True)
 
             holds, cobertura = pesos_portafolio(inv)
@@ -486,6 +488,43 @@ def _detalle_copy(e: dict):
                    "Usa la calculadora 🧮 para planear tu compra y registra cada compra real "
                    "en 'Opera cada acción'. Cuando el experto publique un reporte nuevo, "
                    "aquí te avisaré qué reajustar.")
+
+    if _total > 0:
+        # Nivel de réplica: qué tanto se parece TU cartera a la del experto hoy.
+        # 100 − (suma de diferencias de peso / 2) = similitud entre ambas distribuciones.
+        dif = sum(abs(f["tu_peso"] - f["pesoQ2"]) for f in filas) / 2
+        sim = max(0.0, min(100.0, 100.0 - dif))
+        if sim >= 85:
+            msg, col = "¡Réplica casi calcada! Vas siguiendo muy bien al experto.", GREEN
+        elif sim >= 60:
+            msg, col = "Buena réplica — puedes afinar los pesos comprando lo que te falta.", GOLD
+        else:
+            msg, col = "Tu cartera aún se parece poco a la del experto; revisa la columna de pesos.", GOLD
+        st.markdown(f"""
+        <div style="background:#F8F9FC;border:0.5px solid #E2E6EE;border-radius:12px;padding:12px 16px;margin:4px 0 8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:600;color:#4A5066;">🎯 Nivel de réplica</span>
+                <span style="font-size:15px;font-weight:700;color:{col};">{sim:.0f}%</span>
+            </div>
+            <div style="background:#E8ECF4;border-radius:6px;height:8px;overflow:hidden;">
+                <div style="background:{col};width:{sim:.0f}%;height:100%;border-radius:6px;"></div>
+            </div>
+            <div style="font-size:11.5px;color:#9DA5B8;margin-top:6px;">{msg}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Aún sin compras: guía de primeros pasos para el principiante.
+        st.markdown(f"""
+        <div style="background:#F4F3FF;border:1px solid #D4CFFF;border-radius:12px;padding:14px 18px;margin:4px 0 8px;">
+            <div style="font-size:13px;font-weight:700;color:{PURPLE};margin-bottom:6px;">
+                🚀 Primeros pasos para replicar esta cartera</div>
+            <div style="font-size:12.5px;color:#4A5066;line-height:1.8;">
+                <b>1.</b> 🧮 Usa la calculadora para saber cuántas acciones te alcanzan con tu monto.<br>
+                <b>2.</b> 🏦 Compra esas acciones con tu casa de bolsa.<br>
+                <b>3.</b> ✍️ Regístralas abajo en <b>'Opera cada acción'</b> con el precio real que pagaste.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # 2) Acciones globales (en modales, para no alargar la pantalla)
     if mostrar_cambios:

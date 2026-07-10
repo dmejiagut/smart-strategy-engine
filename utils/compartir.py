@@ -29,6 +29,10 @@ CARD_BR = (255, 255, 255, 40)
 
 _ICON_PATH = Path(__file__).parent.parent / "assets" / "vestplan_icon.png"
 
+# Dirección pública de la app: va al pie de la tarjeta para que quien la vea
+# en WhatsApp/redes sepa dónde entrar (marketing orgánico).
+APP_URL = "smart-strategy-engine.streamlit.app"
+
 # Rutas de fuentes según el sistema (Windows local / Linux en Streamlit Cloud).
 _FONTS_BOLD = ["seguisb.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf",
                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
@@ -176,12 +180,12 @@ def generar_tarjeta_resultados(datos: dict) -> bytes:
         _pill(d, _W / 2, y, f"VAS AL {datos['meta_pct']:.0f}% DE TU META ANUAL",
               _font(26), WHITE, CARD_BG, pad_x=32, h=64)
 
-    # ── Eslogan + autor ──
-    d.line([(250, 994), (_W - 250, 994)], fill=(255, 255, 255, 46), width=2)
-    _centrado(d, 1012, "Invierte con un plan. No con emociones.", _font(29, bold=False), LILAC)
+    # ── Eslogan + autor + dónde encontrar la app (para que quien la vea pueda entrar) ──
+    d.line([(250, 988), (_W - 250, 988)], fill=(255, 255, 255, 46), width=2)
+    _centrado(d, 1004, "Invierte con un plan. No con emociones.", _font(27, bold=False), LILAC)
     nombre = datos.get("nombre")
-    if nombre:
-        _centrado(d, 1050, f"— {nombre}", _font(25, bold=False), GREY)
+    pie = APP_URL if not nombre else f"{nombre}  ·  {APP_URL}"
+    _centrado(d, 1042, pie, _font(22, bold=False), GREY)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
