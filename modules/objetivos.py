@@ -189,10 +189,13 @@ def _obj_paso_analisis():
 
     # Precios de entrada/salida del USUARIO (empiezan en 0). Se leen AQUÍ, antes de
     # dibujar la gráfica, para pintar sus líneas y que se muevan al ajustarlos abajo.
+    # Los restauramos desde obj_data: si el usuario pasó a Confirmar y regresó,
+    # Streamlit ya purgó el estado de estos number_input (dejaron de dibujarse en el
+    # paso 3). obj_data no se purga, así que ahí conservamos la fuente de verdad.
     ent_key = f"obj_ent_{ticker}"
     sal_key = f"obj_sal_{ticker}"
-    st.session_state.setdefault(ent_key, 0.0)
-    st.session_state.setdefault(sal_key, 0.0)
+    st.session_state.setdefault(ent_key, float(d.get("p_ent") or 0.0))
+    st.session_state.setdefault(sal_key, float(d.get("p_sal") or 0.0))
     user_ent = st.session_state.get(ent_key) or 0.0
     user_sal = st.session_state.get(sal_key) or 0.0
 
@@ -258,6 +261,11 @@ def _obj_paso_analisis():
         precio_salida = st.number_input(f"Salida ({moneda})", min_value=0.0, step=0.5,
                                         format="%.2f", key=sal_key, label_visibility="collapsed")
 
+    # Guardamos los precios en obj_data (no se purga al cambiar de paso), para que
+    # Confirmar los lea y para restaurarlos si el usuario regresa a este paso.
+    d["p_ent"] = float(precio_entrada)
+    d["p_sal"] = float(precio_salida)
+
     # Ganancia objetivo (solo con ambos precios definidos)
     tiene_obj = precio_entrada > 0 and precio_salida > 0
     gan_usd = precio_salida - precio_entrada
@@ -309,8 +317,8 @@ def _obj_paso_confirmar():
         st.rerun()
     nombre = d.get("nombre", ticker)
     moneda = d.get("moneda", "USD")
-    p_ent = st.session_state.get(f"obj_ent_{ticker}") or 0.0
-    p_sal = st.session_state.get(f"obj_sal_{ticker}") or 0.0
+    p_ent = d.get("p_ent") or 0.0
+    p_sal = d.get("p_sal") or 0.0
     if not (p_ent > 0 and p_sal > p_ent):
         st.warning("Faltan precios válidos de entrada y salida. Vuelve al paso de Análisis.")
         if st.button("← Atrás", key="obj_back3_err"):
