@@ -11,7 +11,7 @@ from utils.db_utils import (
     load_div_strategies, load_div_purchases,               # Dividendos
     load_obj_strategies, load_obj_purchases, load_obj_sales,  # Objetivos
     load_fibra_strategies, load_fibra_purchases,           # FIBRAs
-    load_copy_strategies, load_copy_purchases,             # Copy Trading
+    load_copy_strategies, load_copy_purchases, posiciones_copy,  # Copy Trading
     titulos_vendidos,                                      # ventas cerradas
 )
 
@@ -81,16 +81,16 @@ def _resumen_copy():
     items = []
     fx = get_tipo_cambio_actual()
     for e in load_copy_strategies():
-        compras = load_copy_purchases(e["id"])
         inv = 0.0
         val = 0.0
-        for cp in compras:
-            tc = cp.get("tipo_cambio") or fx
-            for d in cp["detalle"]:
-                inv += d["titulos"] * d["precio_usd"] * tc
-                q = get_precio_actual(d["ticker"])
-                px = q["precio"] if q and q.get("precio") else d["precio_usd"]
-                val += d["titulos"] * px * fx
+        # Posición actual por ticker (compradas − vendidas), con su costo promedio.
+        for p in posiciones_copy(e["id"]):
+            if p["titulos"] <= 0:
+                continue  # posición cerrada → vive en el rendimiento realizado
+            inv += p["avg_cost_mxn"] * p["titulos"]
+            q = get_precio_actual(p["ticker"])
+            px = q["precio"] if q and q.get("precio") else p["avg_cost_usd"]
+            val += p["titulos"] * px * fx
         if inv <= 0:
             continue
         nombre = e.get("nombre") or e["investor_id"]

@@ -458,6 +458,73 @@ def delete_copy_purchase(compra_id: int):
     conn.commit()
     conn.close()
 
+
+def titulos_vendidos_copy(estrategia_id: int, ticker: str) -> int:
+    """Acciones ya vendidas de UN ticker dentro de una cartera copiada."""
+    init_db()
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(titulos),0) AS s FROM ventas_cerradas "
+        "WHERE modulo='Copy Trading' AND estrategia_id=? AND ticker=?",
+        (estrategia_id, ticker)).fetchone()
+    conn.close()
+    return int(row["s"] or 0)
+
+
+def posiciones_copy(estrategia_id: int) -> list[dict]:
+    """Posición AGREGADA por ticker de una cartera copiada: cuántas acciones
+    tienes hoy (compradas − vendidas) y su costo promedio (en MXN y USD)."""
+    acc = {}  # ticker -> {comprados, cost_mxn, cost_usd}
+    for cp in load_copy_purchases(estrategia_id):
+        tc = cp.get("tipo_cambio") or 1.0
+        for d in cp["detalle"]:
+            a = acc.setdefault(d["ticker"], {"comprados": 0, "cost_mxn": 0.0, "cost_usd": 0.0})
+            a["comprados"] += int(d["titulos"])
+            a["cost_mxn"] += d["titulos"] * d["precio_usd"] * tc
+            a["cost_usd"] += d["titulos"] * d["precio_usd"]
+    out = []
+    for tk, a in acc.items():
+        vendidos = titulos_vendidos_copy(estrategia_id, tk)
+        held = a["comprados"] - vendidos
+        n = a["comprados"] or 1
+        out.append({"ticker": tk, "comprados": a["comprados"], "vendidos": vendidos,
+                    "titulos": held, "avg_cost_mxn": a["cost_mxn"] / n,
+                    "avg_cost_usd": a["cost_usd"] / n})
+    out.sort(key=lambda p: p["ticker"])
+    return out
+
+
+def registrar_venta_copy(estrategia_id: int, ticker: str, fecha, titulos: int,
+                         precio_usd: float, tipo_cambio: float,
+                         comision_mxn: float = 0.0) -> dict:
+    """Vende N acciones de un ticker de la cartera copiada y registra la
+    ganancia/pérdida realizada en ventas_cerradas (→ Rendimiento realizado)."""
+    pos = {p["ticker"]: p for p in posiciones_copy(estrategia_id)}
+    p = pos.get(ticker)
+    if not p or p["titulos"] <= 0:
+        return {"ok": False, "msg": "No tienes esa posición disponible."}
+    titulos = int(titulos)
+    if titulos <= 0:
+        return {"ok": False, "msg": "La cantidad debe ser mayor a 0."}
+    if titulos > p["titulos"]:
+        return {"ok": False, "msg": f"Solo tienes {p['titulos']} acción(es) de {ticker}."}
+    precio_mxn = float(precio_usd) * float(tipo_cambio)
+    ingreso = titulos * precio_mxn - float(comision_mxn)
+    costo_base = p["avg_cost_mxn"] * titulos
+    ganancia = ingreso - costo_base
+    init_db()
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO ventas_cerradas
+            (modulo, estrategia_id, ticker, fecha, titulos, precio, tipo_cambio,
+             comision, costo_base, ingreso, ganancia)
+        VALUES ('Copy Trading', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (estrategia_id, ticker, str(fecha), titulos, precio_mxn, float(tipo_cambio),
+          float(comision_mxn), costo_base, ingreso, ganancia))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "ganancia": ganancia, "costo_base": costo_base, "ingreso": ingreso}
+
 # ── Estrategias de FIBRAs ──────────────────────────────────────────────────────
 
 def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:

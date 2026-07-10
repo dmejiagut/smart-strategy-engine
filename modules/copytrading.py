@@ -11,7 +11,10 @@ from utils.copytrading_utils import (
 from utils.db_utils import (
     save_copy_strategy, load_copy_strategies, delete_copy_strategy,
     save_copy_purchase, load_copy_purchases, delete_copy_purchase,
+    posiciones_copy, registrar_venta_copy,
 )
+from utils.comisiones import comision_desde_perfil
+from utils.resumen_utils import invalidar_resumen
 from modules import estrategia_comun
 
 GREEN = "#1D9E75"
@@ -299,6 +302,9 @@ def _detalle_copy(e: dict):
             st.success("✅ Compra guardada con tus precios reales. Recuerda ejecutar estas órdenes en tu casa de bolsa.")
             st.rerun()
 
+    # ── Tus posiciones + rebalanceo + venta por posición ──
+    _seccion_posiciones_rebalanceo(e, inv, fx_hoy)
+
     # ── Historial ──
     _seccion("Historial de compras", PURPLE)
     compras = load_copy_purchases(eid)
@@ -313,6 +319,91 @@ def _detalle_copy(e: dict):
                  help="Borra esta cartera con todo su historial de compras"):
         delete_copy_strategy(eid)
         st.rerun()
+
+
+def _seccion_posiciones_rebalanceo(e, inv, fx):
+    """Vista AGREGADA por acción: cuánto tienes, tu peso vs el peso meta del
+    experto (rebalanceo) y venta posición por posición → va a Resultados."""
+    eid = e["id"]
+    posiciones = [p for p in posiciones_copy(eid) if p["titulos"] > 0]
+    if not posiciones:
+        return
+    _seccion("Tus posiciones y rebalanceo", GOLD)
+
+    target = dict(normalizar_holdings(inv["holdings"]))  # ticker → peso meta %
+
+    # Valor actual de cada posición (para calcular tu peso real)
+    datos, total_val = [], 0.0
+    for p in posiciones:
+        pr = get_price_return(p["ticker"])
+        px = pr["precio"] or p["avg_cost_usd"]
+        val_usd = p["titulos"] * px
+        total_val += val_usd
+        datos.append({"p": p, "px": px, "val_usd": val_usd})
+
+    filas, sugerencias = [], []
+    for d in datos:
+        p = d["p"]
+        cur_w = (d["val_usd"] / total_val * 100) if total_val else 0
+        tgt_w = target.get(p["ticker"], 0.0)
+        drift = cur_w - tgt_w
+        pl_pct = (d["px"] / p["avg_cost_usd"] - 1) * 100 if p["avg_cost_usd"] else 0
+        if tgt_w == 0:
+            sug = "El experto ya no la pondera → considera vender"
+            sugerencias.append(f"revisa {p['ticker']}")
+        elif drift > 5:
+            sug = "Sobreponderada → recorta un poco"
+            sugerencias.append(f"recorta {p['ticker']}")
+        elif drift < -5:
+            sug = "Subponderada → aumenta"
+            sugerencias.append(f"aumenta {p['ticker']}")
+        else:
+            sug = "En línea ✓"
+        filas.append({"Acción": p["ticker"], "Tienes": p["titulos"],
+                      "Tu peso": cur_w, "Peso meta": tgt_w,
+                      "Rend.": pl_pct, "Sugerencia": sug})
+    df = pd.DataFrame(filas)
+    st.dataframe(
+        df.style.format({"Tu peso": "{:.1f}%", "Peso meta": "{:.1f}%", "Rend.": "{:+.1f}%"}),
+        hide_index=True, use_container_width=True, height=min(38 * (len(df) + 1), 460))
+
+    nombre_exp = e.get("nombre") or "el experto"
+    if sugerencias:
+        st.info(f"🔄 **Para seguir replicando a {nombre_exp}:** " + " · ".join(sugerencias)
+                + ". El 'peso meta' viene de su último reporte 13F (trimestral).")
+    else:
+        st.success(f"✅ Tu cartera está alineada con la de {nombre_exp}.")
+
+    # ── Venta posición por posición ──
+    st.markdown("**Vender una posición** — la ganancia o pérdida se registra en tus Resultados.")
+    tickers = [p["ticker"] for p in posiciones]
+    tk_sel = st.selectbox("¿Qué acción quieres vender?", tickers, key=f"copy_sell_tk_{eid}")
+    psel = next(p for p in posiciones if p["ticker"] == tk_sel)
+    px_now = get_price_return(tk_sel)["precio"] or psel["avg_cost_usd"]
+    with st.form(f"copy_sell_form_{eid}", clear_on_submit=True):
+        cs1, cs2, cs3 = st.columns(3)
+        fecha_v = cs1.date_input("Fecha", value=date.today(), max_value=date.today(), key=f"cs_f_{eid}")
+        cant = cs2.number_input("Acciones", min_value=1, max_value=int(psel["titulos"]),
+                                value=int(psel["titulos"]), step=1, key=f"cs_n_{eid}")
+        precio_v = cs3.number_input("Precio venta (USD)", min_value=0.01, value=round(px_now, 2),
+                                    step=0.01, format="%.2f", key=f"cs_p_{eid}")
+        tc_v = st.number_input("Tipo de cambio (MXN/USD)", min_value=1.0, value=fx,
+                               step=0.01, format="%.4f", key=f"cs_tc_{eid}")
+        st.caption(f"Costo promedio de {tk_sel}: ≈ ${psel['avg_cost_usd']:,.2f} USD por acción. "
+                   "La comisión se calcula con el % de tu perfil.")
+        vender = st.form_submit_button("💵 Confirmar venta", type="primary", use_container_width=True)
+    if vender:
+        com = comision_desde_perfil(int(cant) * float(precio_v) * float(tc_v))
+        r = registrar_venta_copy(eid, tk_sel, fecha_v, int(cant), float(precio_v), float(tc_v), com)
+        if r["ok"]:
+            invalidar_resumen()
+            g = r["ganancia"]
+            signo = "ganancia" if g >= 0 else "pérdida"
+            st.success(f"✅ Vendiste {int(cant)} de {tk_sel} · {signo} de ${abs(g):,.2f} MXN. "
+                       "Ya aparece en Resultados › Rendimiento realizado.")
+            st.rerun()
+        else:
+            st.warning(r["msg"])
 
 
 def _bloque_compra(cp):
