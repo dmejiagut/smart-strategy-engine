@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v31"
+APP_VERSION = "VestPlan · v32"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -1012,6 +1012,48 @@ def _seccion_logros(perfil):
 
 
 # ─── Mis Resultados ──────────────────────────────────────────────────────────
+def _estrategia_mas_larga():
+    """(etiqueta, meses) de la estrategia con la primera compra más antigua —
+    la que llevas más tiempo sosteniendo. (None, 0) si no hay compras."""
+    from utils.db_utils import (
+        load_strategies, load_purchases,
+        load_div_strategies, load_div_purchases,
+        load_obj_strategies, load_obj_purchases,
+        load_fibra_strategies, load_fibra_purchases,
+        load_copy_strategies, load_copy_purchases,
+    )
+    candidatos = []  # (fecha_min 'YYYY-MM-DD', modulo, nombre)
+
+    def _scan(estrategias, load_p, modulo, name_key="ticker"):
+        for e in estrategias:
+            fechas = [str(c["fecha"])[:10] for c in load_p(e["id"]) if c.get("fecha")]
+            if fechas:
+                nombre = e.get(name_key) or e.get("nombre") or e.get("ticker") or ""
+                candidatos.append((min(fechas), modulo, nombre))
+
+    _scan(load_strategies(), load_purchases, "DCA")
+    _scan(load_div_strategies(), load_div_purchases, "Dividendos")
+    _scan(load_obj_strategies(), load_obj_purchases, "Por Objetivos")
+    _scan(load_fibra_strategies(), load_fibra_purchases, "FIBRAs")
+    for e in load_copy_strategies():
+        fechas = [str(c["fecha"])[:10] for c in load_copy_purchases(e["id"]) if c.get("fecha")]
+        if fechas:
+            candidatos.append((min(fechas), "Copy Trading",
+                               e.get("nombre") or e.get("investor_id") or ""))
+    if not candidatos:
+        return None, 0
+    f0, modulo, nombre = min(candidatos, key=lambda x: x[0])
+    try:
+        y, m, dd = (int(x) for x in f0.split("-"))
+        hoy = date.today()
+        meses = (hoy.year - y) * 12 + (hoy.month - m) - (1 if hoy.day < dd else 0)
+        meses = max(meses, 0)
+    except Exception:
+        meses = 0
+    etiqueta = f"{modulo} · {nombre}" if nombre else modulo
+    return etiqueta, meses
+
+
 def render_resultados():
     st.markdown("""
     <div style="margin-bottom:16px;">
@@ -1020,14 +1062,16 @@ def render_resultados():
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("📥 Cargar Excel — importar tus compras y ventas", key="res_importar", use_container_width=True):
-        nav.goto(nav.IMPORTAR)
-
     res = resumen_global()
     items = res["items"]
     perfil = get_perfil()
 
-    tab_pos, tab_real = st.tabs(["📊 Posiciones actuales", "🏁 Rendimiento realizado"])
+    tab_imp, tab_pos, tab_real = st.tabs(
+        ["📥 Cargar Excel", "📊 Posiciones actuales", "🏁 Rendimiento realizado"])
+
+    with tab_imp:
+        from modules.importar import render_importar
+        render_importar()
 
     with tab_pos:
         if not items:
@@ -1040,18 +1084,38 @@ def render_resultados():
             k2.metric("Valor actual", f"${res['total_valor']:,.2f}", delta=f"{rend:+.2f}%")
             st.metric("Ganancia / pérdida no realizada", f"${gan:,.2f} MXN")
 
-            # Tarjeta para compartir (imagen con tu resultado, estilo VestPlan)
+            # Tarjeta de LOGROS para compartir: celebra disciplina y metas, NUNCA
+            # muestra montos ni el patrimonio del usuario (para compartir sin exponer dinero).
             from utils.compartir import generar_tarjeta_resultados
+            from utils.logros import evaluar_logros
             activas = _estrategias_activas(items)
-            mejor = max(activas, key=lambda x: x["rend_pct"]) if activas else None
-            png = generar_tarjeta_resultados(
-                perfil.get("nombre") or "", res["total_valor"], rend,
-                mejor["modulo"] if mejor and mejor["rend_pct"] > 0 else None,
-                mejor["rend_pct"] if mejor and mejor["rend_pct"] > 0 else None)
-            st.download_button("📤 Compartir mi progreso (imagen)", data=png,
-                               file_name="vestplan_mi_progreso.png", mime="image/png",
+            racha = _racha_dca()
+            badges, _ = evaluar_logros(res, racha, perfil)
+            lg_g = sum(1 for b in badges if b["ganado"])
+            mejor_label, mejor_meses = _estrategia_mas_larga()
+            meta = float(perfil.get("meta_monto") or 0)
+            meta_pct = None
+            meta_cumplida = False
+            if meta > 0:
+                inv_anio = invertido_en_anio(date.today().year)
+                meta_cumplida = inv_anio >= meta
+                meta_pct = None if meta_cumplida else min(inv_anio / meta * 100, 999)
+            datos_tarjeta = {
+                "nombre": perfil.get("nombre") or "",
+                "anio": date.today().year,
+                "rend_pct": rend,
+                "n_estrategias": len(activas),
+                "logros_ganados": lg_g, "logros_total": len(badges),
+                "racha": racha,
+                "mejor_label": mejor_label, "mejor_meses": mejor_meses,
+                "meta_pct": meta_pct, "meta_cumplida": meta_cumplida,
+            }
+            png = generar_tarjeta_resultados(datos_tarjeta)
+            st.download_button("📤 Compartir mis logros (imagen)", data=png,
+                               file_name="vestplan_mis_logros.png", mime="image/png",
                                use_container_width=True,
-                               help="Descarga una tarjeta con tu resultado para compartir por WhatsApp o redes.")
+                               help="Una tarjeta con tus logros y tu disciplina (sin mostrar tu dinero) "
+                                    "para compartir por WhatsApp o redes.")
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             if st.session_state.pop("_auto_analizar", False) or st.button(
