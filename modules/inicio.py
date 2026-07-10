@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v35"
+APP_VERSION = "VestPlan · v36"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -1066,103 +1066,114 @@ def render_resultados():
     items = res["items"]
     perfil = get_perfil()
 
-    tab_imp, tab_pos, tab_real = st.tabs(
-        ["📥 Cargar Excel", "📊 Posiciones actuales", "🏁 Rendimiento realizado"])
+    # Sub-navegación controlable (st.tabs siempre abre en la 1ª; con segmented_control
+    # podemos abrir en "Posiciones actuales" aunque "Cargar Excel" quede primero).
+    # El reset a Posiciones al ENTRAR a Resultados se hace en app.py.
+    TAB_IMP = "📥 Cargar Excel"
+    TAB_POS = "📊 Posiciones actuales"
+    TAB_REAL = "🏁 Rendimiento realizado"
+    st.session_state.setdefault("res_view", TAB_POS)
+    vista = st.segmented_control("Vista", [TAB_IMP, TAB_POS, TAB_REAL],
+                                 key="res_view", label_visibility="collapsed")
+    if vista is None:
+        vista = TAB_POS
 
-    with tab_imp:
+    if vista == TAB_IMP:
         from modules.importar import render_importar
         render_importar()
-
-    with tab_pos:
-        if not items:
-            st.info("Aún no tienes posiciones. Registra una compra en cualquier estrategia.")
-        else:
-            rend = res["total_rend_pct"]
-            gan = res["total_valor"] - res["total_invertido"]
-            k1, k2 = st.columns(2)
-            k1.metric("Capital invertido", f"${res['total_invertido']:,.2f}")
-            k2.metric("Valor actual", f"${res['total_valor']:,.2f}", delta=f"{rend:+.2f}%")
-            st.metric("Ganancia / pérdida no realizada", f"${gan:,.2f} MXN")
-
-            # Tarjeta de LOGROS para compartir: celebra disciplina y metas, NUNCA
-            # muestra montos ni el patrimonio del usuario (para compartir sin exponer dinero).
-            from utils.compartir import generar_tarjeta_resultados
-            from utils.logros import evaluar_logros
-            activas = _estrategias_activas(items)
-            racha = _racha_dca()
-            badges, _ = evaluar_logros(res, racha, perfil)
-            lg_g = sum(1 for b in badges if b["ganado"])
-            mejor_label, mejor_meses = _estrategia_mas_larga()
-            meta = float(perfil.get("meta_monto") or 0)
-            meta_pct = None
-            meta_cumplida = False
-            if meta > 0:
-                inv_anio = invertido_en_anio(date.today().year)
-                meta_cumplida = inv_anio >= meta
-                meta_pct = None if meta_cumplida else min(inv_anio / meta * 100, 999)
-            datos_tarjeta = {
-                "nombre": perfil.get("nombre") or "",
-                "anio": date.today().year,
-                "rend_pct": rend,
-                "n_estrategias": len(activas),
-                "logros_ganados": lg_g, "logros_total": len(badges),
-                "racha": racha,
-                "mejor_label": mejor_label, "mejor_meses": mejor_meses,
-                "meta_pct": meta_pct, "meta_cumplida": meta_cumplida,
-            }
-            png = generar_tarjeta_resultados(datos_tarjeta)
-            st.download_button("📤 Compartir mis logros (imagen)", data=png,
-                               file_name="vestplan_mis_logros.png", mime="image/png",
-                               use_container_width=True,
-                               help="Una tarjeta con tus logros y tu disciplina (sin mostrar tu dinero) "
-                                    "para compartir por WhatsApp o redes.")
-
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            if st.session_state.pop("_auto_analizar", False) or st.button(
-                    "🤖 Analizar mi cartera", type="primary", use_container_width=True,
-                    help="Genera el diagnóstico del Revisor de Cartera al instante"):
-                with st.spinner("Analizando tu cartera…"):
-                    payload = cartera_payload(perfil)
-                    exportar_json(perfil, payload)  # payload reutilizado: no se calcula 2 veces
-                    st.session_state["_revisor_html"] = generar_html(payload)
-
-            dcol1, dcol2 = st.columns(2)
-            with dcol1:
-                try:
-                    pdf_bytes = export_pdf(perfil)
-                    st.download_button("⬇ PDF", data=pdf_bytes,
-                                       file_name=f"Mis_Resultados_{date.today()}.pdf",
-                                       mime="application/pdf", use_container_width=True)
-                except Exception as exc:
-                    st.button("⬇ PDF", disabled=True, use_container_width=True)
-                    st.caption(f"PDF no disponible: {exc}")
-            with dcol2:
-                try:
-                    xlsx_bytes = export_excel(perfil)
-                    st.download_button("⬇ Excel", data=xlsx_bytes,
-                                       file_name=f"Mis_Resultados_{date.today()}.xlsx",
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                       use_container_width=True)
-                except Exception as exc:
-                    st.button("⬇ Excel", disabled=True, use_container_width=True)
-                    st.caption(f"Excel no disponible: {exc}")
-
-            if st.session_state.get("_revisor_html"):
-                html = st.session_state["_revisor_html"]
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                components.html(html, height=720, scrolling=True)
-                st.download_button("⬇ Descargar diagnóstico (HTML)", data=html.encode("utf-8"),
-                                   file_name=f"Revisor_Cartera_{date.today()}.html",
-                                   mime="text/html")
-
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-            st.markdown("**Detalle por estrategia**")
-            for i, f in enumerate(_estrategias_activas(items)):
-                _fila_estrategia_activa(f, key=f"act_r{i}")
-            st.caption("Valor con precios de mercado en vivo (en MXN). Ya descuenta lo que has vendido.")
-
-    with tab_real:
+    elif vista == TAB_REAL:
         _rendimiento_realizado()
+    else:
+        _resultados_posiciones(res, items, perfil)
+
+
+def _resultados_posiciones(res, items, perfil):
+    if not items:
+        st.info("Aún no tienes posiciones. Registra una compra en cualquier estrategia.")
+        return
+    rend = res["total_rend_pct"]
+    gan = res["total_valor"] - res["total_invertido"]
+    k1, k2 = st.columns(2)
+    k1.metric("Capital invertido", f"${res['total_invertido']:,.2f}")
+    k2.metric("Valor actual", f"${res['total_valor']:,.2f}", delta=f"{rend:+.2f}%")
+    st.metric("Ganancia / pérdida no realizada", f"${gan:,.2f} MXN")
+
+    # Tarjeta de LOGROS para compartir: celebra disciplina y metas, NUNCA
+    # muestra montos ni el patrimonio del usuario (para compartir sin exponer dinero).
+    from utils.compartir import generar_tarjeta_resultados
+    from utils.logros import evaluar_logros
+    activas = _estrategias_activas(items)
+    racha = _racha_dca()
+    badges, _ = evaluar_logros(res, racha, perfil)
+    lg_g = sum(1 for b in badges if b["ganado"])
+    mejor_label, mejor_meses = _estrategia_mas_larga()
+    meta = float(perfil.get("meta_monto") or 0)
+    meta_pct = None
+    meta_cumplida = False
+    if meta > 0:
+        inv_anio = invertido_en_anio(date.today().year)
+        meta_cumplida = inv_anio >= meta
+        meta_pct = None if meta_cumplida else min(inv_anio / meta * 100, 999)
+    datos_tarjeta = {
+        "nombre": perfil.get("nombre") or "",
+        "anio": date.today().year,
+        "rend_pct": rend,
+        "n_estrategias": len(activas),
+        "logros_ganados": lg_g, "logros_total": len(badges),
+        "racha": racha,
+        "mejor_label": mejor_label, "mejor_meses": mejor_meses,
+        "meta_pct": meta_pct, "meta_cumplida": meta_cumplida,
+    }
+    png = generar_tarjeta_resultados(datos_tarjeta)
+    st.download_button("📤 Compartir mis logros (imagen)", data=png,
+                       file_name="vestplan_mis_logros.png", mime="image/png",
+                       use_container_width=True,
+                       help="Una tarjeta con tus logros y tu disciplina (sin mostrar tu dinero) "
+                            "para compartir por WhatsApp o redes.")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    if st.session_state.pop("_auto_analizar", False) or st.button(
+            "🤖 Analizar mi cartera", type="primary", use_container_width=True,
+            help="Genera el diagnóstico del Revisor de Cartera al instante"):
+        with st.spinner("Analizando tu cartera…"):
+            payload = cartera_payload(perfil)
+            exportar_json(perfil, payload)  # payload reutilizado: no se calcula 2 veces
+            st.session_state["_revisor_html"] = generar_html(payload)
+
+    dcol1, dcol2 = st.columns(2)
+    with dcol1:
+        try:
+            pdf_bytes = export_pdf(perfil)
+            st.download_button("⬇ PDF", data=pdf_bytes,
+                               file_name=f"Mis_Resultados_{date.today()}.pdf",
+                               mime="application/pdf", use_container_width=True)
+        except Exception as exc:
+            st.button("⬇ PDF", disabled=True, use_container_width=True)
+            st.caption(f"PDF no disponible: {exc}")
+    with dcol2:
+        try:
+            xlsx_bytes = export_excel(perfil)
+            st.download_button("⬇ Excel", data=xlsx_bytes,
+                               file_name=f"Mis_Resultados_{date.today()}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+        except Exception as exc:
+            st.button("⬇ Excel", disabled=True, use_container_width=True)
+            st.caption(f"Excel no disponible: {exc}")
+
+    if st.session_state.get("_revisor_html"):
+        html = st.session_state["_revisor_html"]
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        components.html(html, height=720, scrolling=True)
+        st.download_button("⬇ Descargar diagnóstico (HTML)", data=html.encode("utf-8"),
+                           file_name=f"Revisor_Cartera_{date.today()}.html",
+                           mime="text/html")
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown("**Detalle por estrategia**")
+    for i, f in enumerate(_estrategias_activas(items)):
+        _fila_estrategia_activa(f, key=f"act_r{i}")
+    st.caption("Valor con precios de mercado en vivo (en MXN). Ya descuenta lo que has vendido.")
 
 
 def _rendimiento_realizado():

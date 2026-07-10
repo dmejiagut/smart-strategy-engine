@@ -365,6 +365,14 @@ if "_goto" in st.session_state:
     st.session_state["nav"] = st.session_state.pop("_goto")
 modulo = st.session_state["nav"]
 
+# Al ENTRAR a Resultados (cambio de página, no reruns internos), abre siempre en
+# "Posiciones actuales" — no en "Cargar Excel". Dentro de la vista, la pestaña que
+# elijas se respeta.
+if modulo != st.session_state.get("_modulo_previo"):
+    if modulo == nav.RESULTADOS:
+        st.session_state["res_view"] = "📊 Posiciones actuales"
+st.session_state["_modulo_previo"] = modulo
+
 # Aplicar el modo (real/demo) guardado a la capa de datos
 db_utils.set_modo(st.session_state.get("_modo_actual", "real"))
 
