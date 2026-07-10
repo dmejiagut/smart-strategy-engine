@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v33"
+APP_VERSION = "VestPlan · v34"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -921,7 +921,7 @@ def render_perfil():
     st.markdown("---")
     st.markdown("**Modo de datos**")
     modo_actual = st.session_state.get("_modo_actual", "real")
-    modo = st.radio("", ["🔵 Real", "🧪 Demostración"],
+    modo = st.radio("Modo de datos", ["🔵 Real", "🧪 Demostración"],
                     index=0 if modo_actual == "real" else 1,
                     horizontal=True, label_visibility="collapsed")
     modo_val = "demo" if "Demo" in modo else "real"
