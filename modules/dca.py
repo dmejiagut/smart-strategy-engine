@@ -208,35 +208,42 @@ def render_dca():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Compras recurrentes automáticas en títulos completos</p>
     </div>
     """, unsafe_allow_html=True)
-    # Si ya tienes estrategias guardadas, abre directo en 'Mis estrategias'
-    if load_strategies():
-        tab_estrategias, tab_nueva = st.tabs(["📋  Mis estrategias", "➕  Nueva estrategia"])
-    else:
-        tab_nueva, tab_estrategias = st.tabs(["➕  Nueva estrategia", "📋  Mis estrategias"])
-    with tab_nueva:
-        _wizard_dca()
-    with tab_estrategias:
+    # Selector de vista (controlado por sesión: al confirmar una estrategia
+    # saltamos solo a 'Mis estrategias' — st.tabs no permite cambiar por código).
+    tiene = bool(load_strategies())
+    LBL_MIS, LBL_NUEVA = "📋  Mis estrategias", "➕  Nueva estrategia"
+    if st.session_state.pop("_dca_goto_mis", False):
+        st.session_state["dca_view"] = LBL_MIS
+    st.session_state.setdefault("dca_view", LBL_MIS if tiene else LBL_NUEVA)
+    if not tiene:
+        st.session_state["dca_view"] = LBL_NUEVA  # sin estrategias: solo crear
+    vista = st.segmented_control("Vista", [LBL_MIS, LBL_NUEVA],
+                                 key="dca_view", label_visibility="collapsed")
+    if vista is None:   # segmented_control permite deseleccionar → usa un default
+        vista = LBL_MIS if tiene else LBL_NUEVA
+    if vista == LBL_MIS:
         _mis_estrategias()
+    else:
+        _wizard_dca()
 
 def _wizard_dca():
     estrategia_comun.boton_ayuda(
         "ayuda_dca",
         "📊 Cómo usar el módulo de DCA",
         "El DCA consiste en comprar la misma cantidad cada cierto tiempo, sin importar el precio. "
-        "Lo armas en 4 pasos:",
+        "Lo armas en 3 pasos:",
         [
             ("1. Emisora", "Busca y elige la acción, ETF o FIBRA que quieres comprar (ej: NVDA, Apple, FUNO)."),
             ("2. Estrategia", "Define cada cuánto compras (frecuencia), cuántos títulos por compra y por cuánto tiempo."),
-            ("3. Calendario", "Opcional: crea recordatorios automáticos en tu Google Calendar."),
-            ("4. Confirmar", "Revisa el resumen y guarda la estrategia."),
-            ("Después: registra tus compras", "En la pestaña 'Mis estrategias' anotas cada compra real (precio y cantidad) y sigues tu avance, con los botones Detalles, Compra y Venta."),
+            ("3. Confirmar", "Revisa el resumen, activa (opcional) los recordatorios de Google Calendar y guarda."),
+            ("Después: registra tus compras", "En 'Mis estrategias' anotas cada compra real (precio y cantidad) y sigues tu avance, con los botones Detalles, Compra y Venta."),
         ],
         nota="Los botones 'Rendimiento 1 año / 5 años' del paso 2 muestran cómo le fue a la acción en el pasado, "
              "para estimar tu inversión. Rendimientos pasados no garantizan futuros.")
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     step = st.session_state.dca_step
-    cols_steps = st.columns(4)
-    pasos = ["1. Emisora", "2. Estrategia", "3. Calendario", "4. Confirmar"]
+    cols_steps = st.columns(3)
+    pasos = ["1. Emisora", "2. Estrategia", "3. Confirmar"]
     for i, (col, nombre) in enumerate(zip(cols_steps, pasos), start=1):
         with col:
             color = "#6C63FF" if i <= step else "#9DA5B8"
@@ -253,9 +260,7 @@ def _wizard_dca():
         _paso_emisora()
     elif step == 2:
         _paso_estrategia()
-    elif step == 3:
-        _paso_calendario()
-    elif step == 4:
+    else:
         _paso_confirmacion()
 
 def _paso_emisora():
@@ -426,28 +431,12 @@ def _paso_estrategia():
         if st.button("Continuar →", type="primary", key="next2"):
             st.session_state.dca_step = 3; st.rerun()
 
-def _paso_calendario():
-    d = st.session_state.dca_data
-    ticker = d.get("ticker", "—")
-    titulos = d.get("titulos", 0)
-    fechas = d.get("fechas", [])
-    frec = d.get("frecuencia", "—")
-    st.markdown(f"""
-    <div style="background:#F8F9FC;border:0.5px solid #E2E6EE;border-radius:10px;
-                padding:11px 16px;margin-bottom:16px;display:flex;
-                align-items:center;justify-content:space-between;">
-        <div>
-            <span style="font-size:14px;font-weight:600;color:#1a1a2e;">{ticker}</span>
-            <span style="font-size:11px;color:#9DA5B8;margin-left:8px;">{titulos} títulos · {frec} · {len(fechas)} compras</span>
-        </div>
-        <span style="font-size:12px;font-weight:500;color:#6C63FF;background:#F0EEFF;
-                     padding:3px 10px;border-radius:20px;">{len(fechas)} eventos</span>
-    </div>
-    """, unsafe_allow_html=True)
+def _seccion_recordatorios(d, fechas, ticker, titulos):
+    """Recordatorios de Google Calendar (opcional). Se muestra dentro de Confirmar."""
     st.markdown("""
-    <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:20px 22px;">
+    <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:20px 22px;margin-top:8px;">
     <div style="font-size:10px;color:#9DA5B8;font-weight:500;letter-spacing:.08em;
-                text-transform:uppercase;margin-bottom:14px;">Recordatorios de compra</div>
+                text-transform:uppercase;margin-bottom:14px;">Recordatorios de compra (opcional)</div>
     """, unsafe_allow_html=True)
     col_icon, col_text, col_toggle = st.columns([0.08, 0.78, 0.14])
     with col_icon:
@@ -503,15 +492,7 @@ def _paso_calendario():
         st.session_state.dca_data.update({"cal_activado": True, "cal_anticip": dias_antes, "cal_hora": hora})
     else:
         st.session_state.dca_data["cal_activado"] = False
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    col_back, _, col_next = st.columns([1, 4, 1])
-    with col_back:
-        if st.button("← Atrás", key="back3"):
-            st.session_state.dca_step = 2; st.rerun()
-    with col_next:
-        lbl = "Crear eventos y confirmar →" if activar_cal else "Confirmar →"
-        if st.button(lbl, type="primary", key="next3"):
-            st.session_state.dca_step = 4; st.rerun()
+
 
 def _paso_confirmacion():
     d = st.session_state.dca_data
@@ -519,8 +500,6 @@ def _paso_confirmacion():
     frecuencia = d.get("frecuencia","—"); fechas = d.get("fechas",[])
     precio_usd = d.get("precio_usd",0)
     aplicar = d.get("aplicar_comision",True); comision = d.get("comision_pct",0.25)
-    cal_on = d.get("cal_activado",False); cal_hora = d.get("cal_hora","9:00 AM")
-    cal_dias = d.get("cal_anticip",1)
     st.markdown(f"""
     <div style="background:#F8F9FC;border:0.5px solid #E2E6EE;border-radius:10px;
                 padding:11px 16px;margin-bottom:16px;display:flex;
@@ -560,23 +539,32 @@ def _paso_confirmacion():
         df[cols_show].style.format({"Precio (MXN)":"${:,.2f}","Total pagado":"${:,.2f}","Capital acum.":"${:,.0f}"}),
         use_container_width=True, hide_index=True, height=330,
     )
+
+    # ── Recordatorios (Google Calendar) — opcional, ahora dentro de Confirmar ──
+    _seccion_recordatorios(d, fechas, ticker, titulos)
+    cal_on = d.get("cal_activado", False)
+    cal_hora = d.get("cal_hora", "9:00 AM"); cal_dias = d.get("cal_anticip", 1)
     if cal_on:
         st.success(f"📅 Se crearán **{len(fechas)} eventos** en Google Calendar — {cal_dias} día(s) antes a las {cal_hora}")
+
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     col_back, col_export, col_guardar = st.columns([1, 2, 2])
     with col_back:
-        if st.button("← Atrás", key="back4"):
-            st.session_state.dca_step = 3; st.rerun()
+        if st.button("← Atrás", key="back_conf"):
+            st.session_state.dca_step = 2; st.rerun()
     with col_export:
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("⬇ Exportar a CSV", data=csv, file_name=f"DCA_{ticker}_{date.today()}.csv", mime="text/csv", use_container_width=True)
     with col_guardar:
-        if st.button("✅ Guardar estrategia", type="primary", use_container_width=True):
+        if st.button("✅ Confirmar y guardar", type="primary", use_container_width=True):
             save_strategy(d)
             if cal_on:
                 create_calendar_events(ticker=ticker, titulos=titulos, fechas=fechas, hora=cal_hora, dias_antes=cal_dias)
+            st.session_state.dca_step = 1
+            st.session_state.dca_data = {}
+            st.session_state["_dca_goto_mis"] = True   # al confirmar, ir a Mis estrategias
             st.success(f"✅ Estrategia DCA '{ticker}' guardada.")
-            st.session_state.dca_step = 1; st.session_state.dca_data = {}; st.rerun()
+            st.rerun()
 
 def _mis_estrategias():
     estrategias = load_strategies()
