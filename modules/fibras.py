@@ -159,7 +159,17 @@ def _fib_paso_emisora():
     st.markdown("**Selecciona una FIBRA para continuar**")
     opciones = {f"{r['Fibra']} ({r['ticker']}) · {r['Sector']}": r["ticker"]
                 for _, r in df.iterrows()}
-    sel_label = st.selectbox("FIBRA", list(opciones.keys()), key="fib_sel")
+    keys = list(opciones.keys())
+    if not keys:
+        st.warning("No hay FIBRAs disponibles en este momento. Intenta de nuevo en unos minutos.")
+        return
+    # Si la opción guardada ya no existe (la tabla cambió entre refrescos de datos),
+    # la limpiamos: si no, Streamlit crashea con "el valor no está en las opciones".
+    if st.session_state.get("fib_sel") not in keys:
+        st.session_state.pop("fib_sel", None)
+    sel_label = st.selectbox("FIBRA", keys, key="fib_sel")
+    if sel_label not in opciones:
+        sel_label = keys[0]
     ticker_sel = opciones[sel_label]
     fila = df[df["ticker"] == ticker_sel].iloc[0]
     st.session_state.fibra_data = {

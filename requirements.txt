@@ -1,7 +1,12 @@
-streamlit>=1.40.0
+# Fijado a la versión probada: con `streamlit>=1.40.0` la nube instalaba la ÚLTIMA
+# versión de Streamlit, que ya deprecó/removió APIs que usamos (use_container_width,
+# components.v1.html) y podía romper el deploy. Sube este número solo tras probar
+# localmente con esa versión exacta.
+streamlit==1.58.0
 plotly>=5.20.0
-pandas>=2.0.0
-numpy>=1.26.0
+# Tope en <3.0: pandas 3.0 cambia el Styler y podría romper las tablas coloreadas.
+pandas>=2.0.0,<3.0.0
+numpy>=1.26.0,<3.0.0
 yfinance>=0.2.40
 yahooquery>=2.3.0
 python-dateutil>=2.9.0
