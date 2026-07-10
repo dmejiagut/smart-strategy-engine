@@ -7,6 +7,7 @@ from utils.db_utils import get_perfil
 from utils.copytrading_utils import (
     INVERSIONISTAS, get_price_return, normalizar_holdings, rendimiento_inversionista,
     pesos_portafolio, analizar_inversionista, riesgo_cartera, match_perfil,
+    movimientos_experto,
 )
 from utils.db_utils import (
     save_copy_strategy, load_copy_strategies, delete_copy_strategy,
@@ -227,6 +228,9 @@ def _detalle_copy(e: dict):
     holds = normalizar_holdings(inv["holdings"])
     fx_hoy = get_tipo_cambio_actual()
 
+    # ── Movimientos del experto (nuevo reporte trimestral) ──
+    _seccion_movimientos_experto(inv)
+
     # ── Configurar inversión ──
     _seccion("Invertir en esta cartera", GREEN)
     c1, c2 = st.columns(2)
@@ -319,6 +323,51 @@ def _detalle_copy(e: dict):
                  help="Borra esta cartera con todo su historial de compras"):
         delete_copy_strategy(eid)
         st.rerun()
+
+
+def _seccion_movimientos_experto(inv):
+    """Muestra qué movió el experto en su último reporte 13F (compró/vendió/ajustó)
+    y qué haría el cliente para seguir replicándolo. El cliente decide."""
+    mv = movimientos_experto(inv)
+    if not mv or not mv["hay"]:
+        return
+    nombre = inv["nombre"]
+
+    def _chips(items, fmt):
+        return " ".join(
+            f"<span style='display:inline-block;background:{'#E3F7EF' if fmt=='buy' else '#FDECEC'};"
+            f"color:{GREEN if fmt=='buy' else RED};font-size:12px;font-weight:600;"
+            f"border-radius:8px;padding:2px 8px;margin:2px 3px 2px 0;'>{x}</span>"
+            for x in items)
+
+    comprar = [f"{t} · nueva" for t, _ in mv["anadidas"]] + \
+              [f"{t} {o:.0f}%→{c:.0f}%" for t, o, c in mv["subieron"]]
+    vender = [f"{t} · salió" for t, _ in mv["quitadas"]] + \
+             [f"{t} {o:.0f}%→{c:.0f}%" for t, o, c in mv["bajaron"]]
+
+    bloques = ""
+    if comprar:
+        bloques += (f"<div style='margin-top:8px;'><span style='font-size:12px;font-weight:700;color:{GREEN};'>"
+                    f"🟢 Compró / aumentó</span><div style='margin-top:3px;'>{_chips(comprar, 'buy')}</div>"
+                    f"<div style='font-size:11px;color:#9DA5B8;'>→ para replicarlo, considera comprar estas.</div></div>")
+    if vender:
+        bloques += (f"<div style='margin-top:10px;'><span style='font-size:12px;font-weight:700;color:{RED};'>"
+                    f"🔴 Vendió / redujo</span><div style='margin-top:3px;'>{_chips(vender, 'sell')}</div>"
+                    f"<div style='font-size:11px;color:#9DA5B8;'>→ para replicarlo, considera vender/recortar estas.</div></div>")
+
+    st.markdown(f"""
+    <div style="background:#F4F3FF;border:1px solid #C9C2FF;border-radius:12px;padding:14px 16px;margin:4px 0 10px;">
+        <div style="font-size:13px;font-weight:700;color:{PURPLE};">
+            🔔 {nombre} ajustó su cartera · nuevo reporte {mv['trimestre']}
+            <span style="font-weight:400;color:#9DA5B8;">(vs {mv['anterior']})</span></div>
+        {bloques}
+        <div style="font-size:11px;color:#4A5066;margin-top:10px;">
+            <b>Tú decides si rebalancear.</b> Usa "Invertir" para comprar y "Vender una posición" (abajo) para vender.</div>
+        <div style="font-size:10px;color:#9DA5B8;font-style:italic;margin-top:6px;">
+            Movimientos representativos con fines ilustrativos, basados en reportes 13F públicos
+            (trimestrales, con retraso). Verifica en fuentes oficiales antes de operar.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def _seccion_posiciones_rebalanceo(e, inv, fx):

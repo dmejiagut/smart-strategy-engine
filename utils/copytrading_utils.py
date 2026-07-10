@@ -86,6 +86,66 @@ COBERTURA_TOP10 = {
     "terry_smith": 65, "coleman": 70, "loeb": 70,
 }
 
+# ── Historial de reportes 13F (para detectar "movimientos del experto") ──
+# El reporte ACTUAL de cada inversionista es su lista `holdings` de arriba.
+# Aquí guardamos el reporte del trimestre ANTERIOR; comparando ambos se ve qué
+# compró, vendió o reajustó entre sus posiciones principales.
+# NOTA: datos REPRESENTATIVOS con fines ilustrativos (basados en reportes 13F
+# públicos, que se publican cada trimestre con retraso). Verifica en fuentes
+# oficiales (SEC EDGAR) antes de operar. Un feed 13F en vivo es Fase 2.
+TRIMESTRE_ACTUAL = "Q1 2026"
+TRIMESTRE_ANTERIOR = "Q4 2025"
+
+REPORTE_ANTERIOR = {
+    "buffett": [("AAPL", 30), ("AXP", 15), ("BAC", 13), ("KO", 9), ("CVX", 8),
+                ("OXY", 4), ("MCO", 4), ("KHC", 4), ("HPQ", 3), ("CB", 3), ("KR", 3)],
+    "wood": [("TSLA", 15), ("COIN", 8), ("ROKU", 9), ("PLTR", 5), ("HOOD", 5),
+             ("RKLB", 6), ("CRSP", 7), ("PATH", 6), ("ZM", 6), ("DKNG", 4)],
+    "lilu": [("GOOGL", 30), ("BAC", 22), ("BRK-B", 20), ("BABA", 20), ("OXY", 8)],
+    "dalio": [("IVV", 7), ("GLD", 6), ("IEMG", 6), ("SPY", 8), ("PG", 5),
+              ("JNJ", 5), ("KO", 5), ("WMT", 4), ("COST", 5), ("GOOGL", 5)],
+    "ackman": [("BN", 18), ("HLT", 16), ("CMG", 16), ("QSR", 12), ("GOOG", 12),
+               ("NKE", 10), ("HHH", 6)],
+    "burry": [("BKNG", 18), ("GOOGL", 16), ("MOH", 12), ("CI", 12), ("HCA", 12),
+              ("PHM", 10), ("BABA", 10), ("JD", 10)],
+    "fisher": [("AAPL", 15), ("MSFT", 14), ("NVDA", 11), ("AMZN", 12), ("GOOGL", 11),
+               ("META", 9), ("AVGO", 8), ("V", 6), ("MA", 6), ("TSM", 5)],
+    "blackrock": [("AAPL", 14), ("MSFT", 14), ("NVDA", 11), ("AMZN", 11), ("GOOGL", 10),
+                  ("META", 10), ("AVGO", 8), ("BRK-B", 7), ("JPM", 7), ("V", 8)],
+    # Munger (Daily Journal) es un legado: no se rebalancea → sin reporte anterior.
+}
+
+
+def movimientos_experto(inv: dict):
+    """Compara el reporte 13F ACTUAL (inv['holdings']) con el ANTERIOR y devuelve
+    qué AÑADIÓ, QUITÓ, AUMENTÓ o REDUJO el experto entre sus posiciones top.
+    Devuelve None si no hay reporte anterior cargado."""
+    prev = REPORTE_ANTERIOR.get(inv["id"])
+    if not prev:
+        return None
+    cur = dict(normalizar_holdings(inv["holdings"]))
+    old = dict(normalizar_holdings(prev))
+    UMBRAL = 2.0  # puntos porcentuales para considerar un ajuste "relevante"
+    anadidas, quitadas, subieron, bajaron = [], [], [], []
+    for t in set(cur) | set(old):
+        c, o = cur.get(t, 0.0), old.get(t, 0.0)
+        if o < 0.5 <= c:
+            anadidas.append((t, c))
+        elif c < 0.5 <= o:
+            quitadas.append((t, o))
+        elif c - o >= UMBRAL:
+            subieron.append((t, o, c))
+        elif o - c >= UMBRAL:
+            bajaron.append((t, o, c))
+    return {
+        "hay": bool(anadidas or quitadas or subieron or bajaron),
+        "trimestre": TRIMESTRE_ACTUAL, "anterior": TRIMESTRE_ANTERIOR,
+        "anadidas": sorted(anadidas, key=lambda x: -x[1]),
+        "quitadas": sorted(quitadas, key=lambda x: -x[1]),
+        "subieron": sorted(subieron, key=lambda x: -(x[2] - x[1])),
+        "bajaron": sorted(bajaron, key=lambda x: -(x[1] - x[2])),
+    }
+
 
 def pesos_portafolio(inv: dict):
     """

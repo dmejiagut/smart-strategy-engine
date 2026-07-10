@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v23"
+APP_VERSION = "VestPlan · v24"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -139,6 +139,27 @@ def _alertas_objetivos():
     return alertas
 
 
+def _alertas_copy():
+    """Carteras copiadas ACTIVAS cuyo experto tuvo movimientos en su reporte más
+    reciente. Solo interesan las que el cliente tiene guardadas."""
+    from utils.db_utils import load_copy_strategies
+    from utils.copytrading_utils import INVERSIONISTAS, movimientos_experto
+    inv_by_id = {i["id"]: i for i in INVERSIONISTAS}
+    out = []
+    for e in load_copy_strategies():
+        inv = inv_by_id.get(e["investor_id"])
+        if not inv:
+            continue
+        mv = movimientos_experto(inv)
+        if mv and mv["hay"]:
+            n = (len(mv["anadidas"]) + len(mv["quitadas"])
+                 + len(mv["subieron"]) + len(mv["bajaron"]))
+            out.append({"nombre": e.get("nombre") or inv["nombre"],
+                        "investor_id": e["investor_id"],
+                        "trimestre": mv["trimestre"], "n": n})
+    return out
+
+
 def _racha_dca():
     """Compras DCA seguidas hechas A TIEMPO (a más tardar 3 días después de su
     fecha planeada). Premia la disciplina: se rompe con una compra tardía."""
@@ -170,12 +191,25 @@ def _racha_dca():
 
 
 @st.dialog("🔔 Notificaciones")
-def _dialog_notificaciones(proximas, alertas):
-    """Panel de notificaciones: objetivos alcanzados + qué te toca comprar."""
+def _dialog_notificaciones(proximas, alertas, movs_copy=None):
+    """Panel de notificaciones: movimientos de expertos + objetivos + compras."""
+    movs_copy = movs_copy or []
     vencidas = [p for p in proximas if p["delta"] <= 0]
     futuras = [p for p in proximas if p["delta"] > 0]
-    if not proximas and not alertas:
+    if not proximas and not alertas and not movs_copy:
         st.success("Todo al día. No tienes compras pendientes. ✅")
+    if movs_copy:
+        st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:2px;'>"
+                    "📊 Un experto movió su cartera</div>", unsafe_allow_html=True)
+        for m in movs_copy:
+            st.markdown(
+                f"<div style='padding:8px 0;border-bottom:1px solid #F0F2F8;'>"
+                f"<b style='color:#1a1a2e;'>{esc(m['nombre'])}</b> "
+                f"<span style='color:{PURPLE};font-size:12.5px;font-weight:600;'>ajustó su cartera "
+                f"({esc(m['trimestre'])})</span><br>"
+                f"<span style='color:#9DA5B8;font-size:12px;'>{m['n']} movimiento(s) · "
+                f"ábrela en Estrategias › Copy Trading para ver qué comprar/vender</span></div>",
+                unsafe_allow_html=True)
     if alertas:
         st.markdown("<div style='font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:2px;'>"
                     "🎯 Objetivos alcanzados</div>", unsafe_allow_html=True)
@@ -245,12 +279,14 @@ def render_inicio():
     proximas = _proximas_compras()
     vencidas = [p for p in proximas if p["delta"] <= 0]
     alertas = _alertas_objetivos()
+    movs_copy = _alertas_copy()
 
     # Campanita = NOTIFICACIONES: el número solo cuenta lo que NO has visto.
     # Al abrirla se marca como leído (el número se apaga); si llega algo nuevo,
     # se vuelve a encender. El copiloto, en cambio, insiste hasta que resuelvas.
     firmas = ({f"v:{p['ticker']}:{p['fecha']}" for p in vencidas}
-              | {f"a:{a['ticker']}:{a['tipo']}" for a in alertas})
+              | {f"a:{a['ticker']}:{a['tipo']}" for a in alertas}
+              | {f"cm:{m['investor_id']}:{m['trimestre']}" for m in movs_copy})
     vistas = st.session_state.setdefault("_notif_vistas", set())
     n_notif = len(firmas - vistas)
 
@@ -280,7 +316,7 @@ def render_inicio():
         """, unsafe_allow_html=True)
         if hB.button(f"🔔 {n_notif}" if n_notif else "🔔", key="tb_bell", help="Notificaciones"):
             st.session_state["_notif_vistas"] = vistas | firmas   # marcar como leídas
-            _dialog_notificaciones(proximas, alertas)
+            _dialog_notificaciones(proximas, alertas, movs_copy)
         inicial = (perfil.get("nombre") or "U").strip()[:1].upper() or "U"
         if hA.button(inicial, key="tb_perfil", help="Tu perfil"):
             nav.goto(nav.PERFIL)
@@ -300,7 +336,7 @@ def render_inicio():
 
     # ── Mensaje del copiloto (estado del plan; toca para ver el detalle) ──
     # La tarjeta ES el acceso al detalle: sin sección 'Pendientes' duplicada.
-    _mensaje_estado(res, items, vencidas, alertas, racha, proximas)
+    _mensaje_estado(res, items, vencidas, alertas, racha, proximas, movs_copy)
 
     # ── Tarjeta de patrimonio (oscura, con gráfica de evolución y KPIs) ──
     _tarjeta_patrimonio(res, rend, hist)
@@ -323,7 +359,7 @@ def render_inicio():
             _fila_estrategia_activa(f, key=f"act_{i}")
 
 
-def _mensaje_estado(res, items, vencidas, alertas, racha=0, proximas=None):
+def _mensaje_estado(res, items, vencidas, alertas, racha=0, proximas=None, movs_copy=None):
     """Copiloto de VestPlan: primero el ESTADO del plan, luego (opcional) el detalle.
     TODA la tarjeta es tocable y abre el panel de notificaciones (por eso la ›)."""
     frase = _frase_filosofia()
@@ -380,7 +416,7 @@ def _mensaje_estado(res, items, vencidas, alertas, racha=0, proximas=None):
         """, unsafe_allow_html=True)
         # Botón invisible sobre toda la tarjeta (CSS .st-key-card_) → notificaciones.
         if st.button("Ver detalle", key="estado_detalle", use_container_width=True):
-            _dialog_notificaciones(proximas or [], alertas or [])
+            _dialog_notificaciones(proximas or [], alertas or [], movs_copy or [])
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
 
