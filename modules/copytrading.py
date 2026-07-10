@@ -51,8 +51,8 @@ def _tab_inversionistas():
         [
             ("1. Elige un inversionista", "Míralos en la lista con el rendimiento de su cartera en el último año, o búscalos por nombre (ej: Buffett, Icahn)."),
             ("2. Revisa su cartera", "Verás en qué acciones invierte y en qué porcentaje, su nivel de riesgo y qué tanto encaja con tu perfil."),
-            ("3. Replica con tu monto", "Registra cuánto dinero quieres poner y la app arma la canasta proporcional (cuántas acciones de cada una)."),
-            ("4. Sigue tu resultado", "En la pestaña 'Mis estrategias' ves el valor y el rendimiento de tu réplica."),
+            ("3. Planea con la calculadora", "En 'Mis estrategias', la calculadora 🧮 te dice cuántas acciones enteras de cada una te alcanzan con tu monto — es un plan, no registra nada."),
+            ("4. Registra y sigue tu resultado", "Cuando compres de verdad, registra cada compra en 'Opera cada acción' (con comisión+IVA de tu perfil) y ahí mismo ves tu rendimiento."),
         ],
         nota="Recuerda: los rendimientos pasados no garantizan los futuros, y tú decides cuánto seguir.")
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -290,41 +290,38 @@ def _tabla_copy(inv, filas, mostrar_cambios: bool):
                  height=min(38 * (len(df) + 1), 460))
 
 
-@st.dialog("💵 Invertir un monto")
-def _dialog_invertir(e, inv, fx):
-    """Reparte un monto entre las posiciones del experto (acciones ENTERAS) y
-    guarda la compra. Para arrancar o agregar dinero a la cartera."""
+@st.dialog("🧮 ¿Cuántas acciones me alcanzan?")
+def _dialog_plan_inversion(e, inv, fx):
+    """CALCULADORA (no registra nada): reparte un monto entre las posiciones del
+    experto y muestra cuántas acciones ENTERAS tocarían de cada una. Las compras
+    reales se registran acción por acción, con el precio que pagaste."""
     eid = e["id"]
     holds = normalizar_holdings(inv["holdings"])
     c1, c2 = st.columns(2)
-    monto_mxn = c1.number_input("¿Cuánto invertir? (MXN)", min_value=100.0, value=50000.0,
+    monto_mxn = c1.number_input("¿Cuánto piensas invertir? (MXN)", min_value=100.0, value=50000.0,
                                 step=500.0, format="%.2f", key=f"inv_m_{eid}")
     tc = c2.number_input("Tipo de cambio", min_value=1.0, value=fx, step=0.01,
                          format="%.4f", key=f"inv_tc_{eid}")
     monto_usd = monto_mxn / tc
-    detalle, filas = [], []
+    usado_usd = 0.0
+    filas = []
     for tk, peso in holds:
         px = get_price_return(tk)["precio"]
         acc = int(monto_usd * peso / 100 // px) if px else 0
-        if acc > 0:
-            detalle.append({"ticker": tk, "titulos": acc, "precio_usd": px})
+        usado_usd += acc * (px or 0)
         filas.append({"Acción": tk, "Peso": f"{peso:.0f}%",
                       "Precio USD": f"${px:,.2f}" if px else "—", "Acciones": acc,
                       "≈ MXN": f"${acc * (px or 0) * tc:,.0f}"})
-    usado = sum(d["titulos"] * d["precio_usd"] for d in detalle)
     st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True,
                  height=min(38 * (len(filas) + 1), 360))
-    st.caption(f"Solo **acciones enteras** (SIC). Usarás ≈ ${usado * tc:,.0f} MXN; "
-               f"sobrante ≈ ${(monto_usd - usado) * tc:,.0f} MXN. El precio real de cada compra "
-               "lo puedes ajustar después, acción por acción.")
-    if st.button("💾 Guardar compra", type="primary", use_container_width=True):
-        if not detalle:
-            st.warning("El monto no alcanza ni para una acción entera. Aumenta el monto.")
-        else:
-            save_copy_purchase(eid, date.today(), monto_mxn, tc, detalle)
-            invalidar_resumen()
-            st.success("✅ Compra guardada.")
-            st.rerun()
+    usado_mxn = usado_usd * tc
+    com_est = comision_desde_perfil(usado_mxn)
+    st.caption(f"Solo **acciones enteras** (SIC). Usarías ≈ ${usado_mxn:,.0f} MXN "
+               f"(+ ≈ ${com_est:,.0f} de comisión+IVA con el % de tu perfil); "
+               f"sobrante ≈ ${(monto_usd - usado_usd) * tc:,.0f} MXN.")
+    st.info("🧮 Esto es un **plan**, no una orden: aquí no se registra nada. "
+            "Cuando hagas las compras reales con tu casa de bolsa, regístralas una por una "
+            "en **'Opera cada acción'** con el precio real que pagaste.")
 
 
 @st.dialog("🔄 Rebalancear a la meta")
@@ -334,7 +331,7 @@ def _dialog_rebalanceo(e, inv, fx):
     eid = e["id"]
     filas, total_val = _plan_copy(eid, inv, fx)
     if total_val <= 0:
-        st.info("Aún no tienes posiciones. Usa 'Invertir un monto' primero.")
+        st.info("Aún no tienes posiciones. Registra tus compras en 'Opera cada acción' primero.")
         return
     ordenes = [(f["ticker"], f["mov"], f["precio"]) for f in filas if f["mov"] != 0]
     if not ordenes:
@@ -349,7 +346,8 @@ def _dialog_rebalanceo(e, inv, fx):
             f"<b style='color:{col};'>{verbo} {abs(mov)}</b> {tk} "
             f"<span style='color:#9DA5B8;'>≈ ${abs(mov) * px * fx:,.0f} MXN</span></div>",
             unsafe_allow_html=True)
-    st.caption("Precios de mercado hoy. Las ganancias/pérdidas de las ventas van a Resultados.")
+    st.caption("Precios de mercado hoy. Cada orden lleva comisión+IVA con el % de tu perfil. "
+               "Las ganancias/pérdidas de las ventas van a Resultados.")
     if st.button("✅ Confirmar todas las órdenes", type="primary", use_container_width=True):
         for tk, mov, px in ordenes:
             if mov < 0:
@@ -357,7 +355,8 @@ def _dialog_rebalanceo(e, inv, fx):
                                      comision_desde_perfil(-mov * px * fx))
             else:
                 save_copy_purchase(eid, date.today(), mov * px * fx, fx,
-                                   [{"ticker": tk, "titulos": mov, "precio_usd": px}])
+                                   [{"ticker": tk, "titulos": mov, "precio_usd": px}],
+                                   comision=comision_desde_perfil(mov * px * fx))
         invalidar_resumen()
         st.success("✅ Rebalanceo aplicado (todas las órdenes). Revisa tus posiciones y Resultados.")
         st.rerun()
@@ -397,9 +396,12 @@ def _detalle_ticker(eid, tk, held, pos, compras, fx):
                                   format="%.2f", key=f"bp_{eid}_{tk}")
             tc_b = b2.number_input("TC (MXN/USD)", min_value=1.0, value=fx, step=0.01,
                                    format="%.4f", key=f"btc_{eid}_{tk}")
+            st.caption("La comisión+IVA se calcula con el % de tu perfil.")
             if st.form_submit_button(f"➕ Comprar {tk}", use_container_width=True):
-                save_copy_purchase(eid, f_b, int(n_b) * float(p_b) * float(tc_b), float(tc_b),
-                                   [{"ticker": tk, "titulos": int(n_b), "precio_usd": float(p_b)}])
+                importe = int(n_b) * float(p_b) * float(tc_b)
+                save_copy_purchase(eid, f_b, importe, float(tc_b),
+                                   [{"ticker": tk, "titulos": int(n_b), "precio_usd": float(p_b)}],
+                                   comision=comision_desde_perfil(importe))
                 invalidar_resumen()
                 st.success(f"✅ Compraste {int(n_b)} de {tk}.")
                 st.rerun()
@@ -481,20 +483,23 @@ def _detalle_copy(e: dict):
                    "El 'Movimiento' reparte tu valor actual en acciones enteras (SIC).")
     else:
         st.caption("Esta es la **cartera actual** del experto (pesos 13F representativos). "
-                   "Usa '💵 Invertir un monto' para replicarla con tu dinero. "
-                   "Cuando el experto publique un reporte nuevo, aquí te avisaré qué reajustar.")
+                   "Usa la calculadora 🧮 para planear tu compra y registra cada compra real "
+                   "en 'Opera cada acción'. Cuando el experto publique un reporte nuevo, "
+                   "aquí te avisaré qué reajustar.")
 
     # 2) Acciones globales (en modales, para no alargar la pantalla)
     if mostrar_cambios:
         a1, a2 = st.columns(2)
-        if a1.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
-            _dialog_invertir(e, inv, fx)
+        if a1.button("🧮 ¿Cuántas acciones me alcanzan?", key=f"inv_btn_{eid}", use_container_width=True,
+                     help="Calculadora: reparte un monto en acciones enteras. No registra compras."):
+            _dialog_plan_inversion(e, inv, fx)
         if a2.button("🔄 Reajustar al nuevo reporte", key=f"reb_btn_{eid}", use_container_width=True,
                      help="Todas las compras/ventas para igualar su cartera nueva, en un solo paso"):
             _dialog_rebalanceo(e, inv, fx)
     else:
-        if st.button("💵 Invertir un monto", key=f"inv_btn_{eid}", use_container_width=True):
-            _dialog_invertir(e, inv, fx)
+        if st.button("🧮 ¿Cuántas acciones me alcanzan?", key=f"inv_btn_{eid}", use_container_width=True,
+                     help="Calculadora: reparte un monto en acciones enteras. No registra compras."):
+            _dialog_plan_inversion(e, inv, fx)
 
     # 3) Operar acción por acción (desplegables compactos)
     _operar_tickers(e, inv, fx)

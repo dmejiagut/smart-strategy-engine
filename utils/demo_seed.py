@@ -73,14 +73,18 @@ def generar_datos_demo():
     # Ana la copió el trimestre PASADO (Q4 2025); desde entonces salió un reporte
     # nuevo (Q1 2026), así que la demo muestra el aviso de "reajustar al nuevo reporte".
     from utils.copytrading_utils import TRIMESTRE_ANTERIOR
+    from utils.comisiones import calcular_comision
     copy_id = db.save_copy_strategy("buffett", "Warren Buffett", "Berkshire Hathaway",
                                     reporte_base=TRIMESTRE_ANTERIOR)
-    db.save_copy_purchase(copy_id, hoy - timedelta(days=40), 30000.0, TC, [
+    detalle_copy = [
         {"ticker": "AAPL", "titulos": 3, "precio_usd": 268.0},
         {"ticker": "AXP", "titulos": 2, "precio_usd": 320.0},
         {"ticker": "BAC", "titulos": 8, "precio_usd": 49.5},
         {"ticker": "KO", "titulos": 5, "precio_usd": 81.0},
-    ])
+    ]
+    costo_copy = sum(d["titulos"] * d["precio_usd"] for d in detalle_copy) * TC
+    db.save_copy_purchase(copy_id, hoy - timedelta(days=40), round(costo_copy, 2), TC,
+                          detalle_copy, comision=calcular_comision(costo_copy, 0.25))
 
     # Meta de ahorro anual + casa de bolsa (para que el perfil se vea completo)
     db.set_meta_monto(120000.0)
@@ -92,8 +96,10 @@ def generar_datos_demo():
                          1, 8050.0, 40.25, costo_base=6917.25, tipo_cambio=TC)
     #   AAPL (DCA): una venta parcial con ganancia.
     try:
+        # Comisión 0.25% + IVA sobre el importe de la venta (regla de toda la app)
         db.registrar_venta("DCA", dca_id, "AAPL", hoy - timedelta(days=5),
-                           1, 5150.0, comision=25.75, tipo_cambio=TC)
+                           1, 5150.0, comision=calcular_comision(5150.0, 0.25),
+                           tipo_cambio=TC)
     except Exception:
         pass
 

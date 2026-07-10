@@ -360,7 +360,8 @@ def _importar_copy(ws, res):
                 continue
         else:
             db_utils.save_copy_purchase(eid, fecha_d, tit_i * precio_usd * tc_f, tc_f,
-                                        [{"ticker": ticker, "titulos": tit_i, "precio_usd": precio_usd}])
+                                        [{"ticker": ticker, "titulos": tit_i, "precio_usd": precio_usd}],
+                                        comision=com)
         res["insertadas"] += 1
         res["por_estrategia"][etiqueta] = res["por_estrategia"].get(etiqueta, 0) + 1
 

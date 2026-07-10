@@ -99,15 +99,21 @@ def _compras_copy():
         val = 0.0
         for cp in compras:
             tc = cp.get("tipo_cambio") or fx
+            com = cp.get("comision") or 0.0
+            # Comisión+IVA de la compra repartida entre sus acciones (proporcional al costo)
+            base = sum(d["titulos"] * d["precio_usd"] for d in cp["detalle"]) or 1.0
             for d in cp["detalle"]:
-                inv_mxn = d["titulos"] * d["precio_usd"] * tc
+                costo_usd = d["titulos"] * d["precio_usd"]
+                com_fila = com * (costo_usd / base)
+                inv_mxn = costo_usd * tc + com_fila
                 inv += inv_mxn
                 q = get_precio_actual(d["ticker"])
                 px = q["precio"] if q and q.get("precio") else d["precio_usd"]
                 val += d["titulos"] * px * fx
                 rows.append({"Fecha": str(cp["fecha"])[:10], "Acción": d["ticker"],
                              "Títulos": d["titulos"], "Precio compra USD": round(d["precio_usd"], 2),
-                             "TC": round(tc, 4), "Inversión MXN": round(inv_mxn, 2)})
+                             "TC": round(tc, 4), "Comisión+IVA": round(com_fila, 2),
+                             "Inversión MXN": round(inv_mxn, 2)})
         if inv <= 0:
             continue
         items.append({"modulo": "Copy Trading", "nombre": e.get("nombre") or e["investor_id"],

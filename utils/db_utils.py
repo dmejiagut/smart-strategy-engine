@@ -210,6 +210,11 @@ def init_db():
             precio_usd REAL NOT NULL
         )
     """)
+    # Comisión + IVA de cada compra copy (misma regla que los demás módulos)
+    try:
+        conn.execute("ALTER TABLE compras_copy ADD COLUMN comision REAL DEFAULT 0.0")
+    except Exception:
+        pass  # columna ya existe
     # ── Perfil del usuario ──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS perfil (
@@ -424,13 +429,14 @@ def delete_copy_strategy(strategy_id: int):
     conn.close()
 
 def save_copy_purchase(estrategia_id: int, fecha, monto_mxn: float, tipo_cambio: float,
-                       detalle: list[dict]) -> int:
-    """detalle: lista de {ticker, titulos, precio_usd}."""
+                       detalle: list[dict], comision: float = 0.0) -> int:
+    """detalle: lista de {ticker, titulos, precio_usd}. comision: MXN (com.+IVA)."""
     init_db()
     conn = _get_conn()
     cur = conn.execute(
-        "INSERT INTO compras_copy (estrategia_id, fecha, monto_mxn, tipo_cambio) VALUES (?, ?, ?, ?)",
-        (estrategia_id, str(fecha), float(monto_mxn), float(tipo_cambio)),
+        "INSERT INTO compras_copy (estrategia_id, fecha, monto_mxn, tipo_cambio, comision) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (estrategia_id, str(fecha), float(monto_mxn), float(tipo_cambio), float(comision)),
     )
     compra_id = cur.lastrowid
     for d in detalle:
@@ -504,11 +510,16 @@ def posiciones_copy(estrategia_id: int) -> list[dict]:
     acc = {}  # ticker -> {comprados, cost_mxn, cost_usd}
     for cp in load_copy_purchases(estrategia_id):
         tc = cp.get("tipo_cambio") or 1.0
+        com = cp.get("comision") or 0.0
+        # La comisión+IVA de la compra se reparte entre sus acciones en proporción
+        # a su costo (así el costo promedio ya la incluye, como en los demás módulos).
+        base = sum(d["titulos"] * d["precio_usd"] for d in cp["detalle"]) or 1.0
         for d in cp["detalle"]:
             a = acc.setdefault(d["ticker"], {"comprados": 0, "cost_mxn": 0.0, "cost_usd": 0.0})
+            costo_usd = d["titulos"] * d["precio_usd"]
             a["comprados"] += int(d["titulos"])
-            a["cost_mxn"] += d["titulos"] * d["precio_usd"] * tc
-            a["cost_usd"] += d["titulos"] * d["precio_usd"]
+            a["cost_mxn"] += costo_usd * tc + com * (costo_usd / base)
+            a["cost_usd"] += costo_usd
     out = []
     for tk, a in acc.items():
         vendidos = titulos_vendidos_copy(estrategia_id, tk)
