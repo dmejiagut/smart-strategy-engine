@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v40"
+APP_VERSION = "VestPlan · v41"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -1126,13 +1126,20 @@ def _resultados_posiciones(res, items, perfil):
     }
     png = generar_tarjeta_resultados(datos_tarjeta)
     with st.expander("📤 Compartir mis logros (imagen)"):
-        # Vista previa: que veas la tarjeta ANTES de descargarla.
+        # Vista previa: que veas la tarjeta ANTES de compartirla.
         st.image(png, use_container_width=True)
         st.caption("Celebra tu disciplina sin mostrar cuánto dinero tienes — "
                    "lista para WhatsApp o redes.")
-        st.download_button("⬇ Descargar imagen", data=png,
-                           file_name="vestplan_mis_logros.png", mime="image/png",
-                           use_container_width=True, type="primary")
+        cd1, cd2 = st.columns(2)
+        with cd1:
+            st.download_button("⬇ Descargar", data=png,
+                               file_name="vestplan_mis_logros.png", mime="image/png",
+                               use_container_width=True)
+        with cd2:
+            _boton_compartir_whatsapp(png)
+        st.caption("📲 En el celular, el botón verde comparte la **imagen** directo "
+                   "(eliges WhatsApp en el menú). En computadora abre WhatsApp Web con "
+                   "el mensaje, y la imagen la adjuntas tú (descárgala primero).")
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     if st.session_state.pop("_auto_analizar", False) or st.button(
@@ -1177,6 +1184,43 @@ def _resultados_posiciones(res, items, perfil):
     for i, f in enumerate(_estrategias_activas(items)):
         _fila_estrategia_activa(f, key=f"act_r{i}")
     st.caption("Valor con precios de mercado en vivo (en MXN). Ya descuenta lo que has vendido.")
+
+
+def _boton_compartir_whatsapp(png_bytes: bytes):
+    """Botón verde 'Compartir por WhatsApp'. En el celular usa la hoja de
+    compartir nativa CON LA IMAGEN adjunta (Web Share API); donde el navegador
+    no lo soporta (computadora), abre WhatsApp Web con un mensaje de texto
+    (los enlaces wa.me no pueden llevar imágenes, solo texto)."""
+    import base64
+    b64 = base64.b64encode(png_bytes).decode()
+    components.html(f"""
+<body style="margin:0;padding:0;">
+<button id="wa" style="width:100%;height:40px;border:none;border-radius:10px;
+        background:#25D366;color:#fff;font-size:14px;font-weight:600;
+        font-family:'Segoe UI','Inter',sans-serif;cursor:pointer;">
+    📲 Compartir por WhatsApp</button>
+<script>
+const B64 = "{b64}";
+document.getElementById('wa').addEventListener('click', async () => {{
+  try {{
+    const bin = atob(B64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const file = new File([arr], 'vestplan_mis_logros.png', {{type: 'image/png'}});
+    if (navigator.canShare && navigator.canShare({{files: [file]}})) {{
+      await navigator.share({{files: [file], title: 'Mi progreso en VestPlan',
+                              text: 'Mira mi progreso invirtiendo con un plan 📈'}});
+      return;
+    }}
+  }} catch (e) {{
+    if (e && e.name === 'AbortError') return;  // el usuario cerró el menú: no hacer nada
+  }}
+  window.open('https://wa.me/?text=' + encodeURIComponent(
+      '¡Mira mi progreso invirtiendo con un plan en VestPlan! 📈'), '_blank');
+}});
+</script>
+</body>
+""", height=44)
 
 
 def _rendimiento_realizado():
