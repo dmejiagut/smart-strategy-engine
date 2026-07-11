@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v41"
+APP_VERSION = "VestPlan · v42"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -683,6 +683,20 @@ def render_estrategias():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Elige una para empezar o seguir invirtiendo</p>
     </div>
     """, unsafe_allow_html=True)
+    # Acceso a la sección educativa (arriba: primero aprender, luego invertir)
+    with st.container(key="card_aprende"):
+        with st.container(border=True):
+            ca1, ca2 = st.columns([3.4, 1.6])
+            ca1.markdown(
+                "<div style='font-size:20px;'>📚 "
+                "<span style='font-size:14px;font-weight:600;color:#1a1a2e;vertical-align:3px;'>Aprende a invertir</span></div>"
+                "<div style='font-size:11.5px;color:#9DA5B8;line-height:1.35;margin-top:4px;'>"
+                "Mini-lecciones de 2 minutos y glosario — ideal si vas empezando.</div>",
+                unsafe_allow_html=True)
+            ca2.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+            if ca2.button("Aprender →", key="hub_aprende", use_container_width=True):
+                nav.goto(nav.APRENDE)
+
     # Recomendación según el perfil (estrella amarilla en las que encajan)
     perfil = get_perfil()
     recs = _recomendar(perfil.get("perfil_riesgo"), perfil.get("objetivo")) if perfil.get("perfil_riesgo") else []
@@ -1098,6 +1112,9 @@ def _resultados_posiciones(res, items, perfil):
     k2.metric("Valor actual", f"${res['total_valor']:,.2f}", delta=f"{rend:+.2f}%")
     st.metric("Ganancia / pérdida no realizada", f"${gan:,.2f} MXN")
 
+    with st.expander("🏁 ¿Le ganas a CETES y al S&P 500?"):
+        _comparativa_benchmark(res)
+
     # Tarjeta de LOGROS para compartir: celebra disciplina y metas, NUNCA
     # muestra montos ni el patrimonio del usuario (para compartir sin exponer dinero).
     from utils.compartir import generar_tarjeta_resultados
@@ -1221,6 +1238,59 @@ document.getElementById('wa').addEventListener('click', async () => {{
 </script>
 </body>
 """, height=44)
+
+
+def _comparativa_benchmark(res):
+    """¿Tu dinero rindió más que CETES o que el S&P 500? Simula tus MISMOS
+    flujos (fecha y monto de cada compra) invertidos en cada referencia."""
+    from utils.benchmark import flujos_de_compras, simular_spy, simular_cetes
+    flujos = flujos_de_compras()
+    if not flujos:
+        st.caption("Registra compras para comparar tu rendimiento contra CETES y el S&P 500.")
+        return
+    invertido = sum(m for _, m in flujos)
+    if invertido <= 0:
+        st.caption("Registra compras para comparar tu rendimiento contra CETES y el S&P 500.")
+        return
+    # Tu lado: lo que valen HOY tus posiciones + lo que ya recibiste por ventas.
+    ingresos_ventas = sum((v.get("ingreso") or 0.0) for v in load_historial_realizado())
+    mi_valor = res["total_valor"] + ingresos_ventas
+    mi_pct = (mi_valor / invertido - 1) * 100
+
+    tasa = st.number_input(
+        "Tasa anual de CETES (%) — ajústala a la vigente en cetesdirecto.com",
+        min_value=0.0, max_value=30.0, value=8.0, step=0.25, format="%.2f",
+        key="bench_tasa")
+    cetes_val = simular_cetes(tuple(flujos), tasa)
+    cetes_pct = (cetes_val / invertido - 1) * 100
+    spy_val = simular_spy(tuple(flujos))
+    spy_pct = (spy_val / invertido - 1) * 100 if spy_val else None
+
+    filas = [("Tú, con tu plan", mi_pct, mi_valor),
+             (f"CETES ({tasa:.2f}%)", cetes_pct, cetes_val)]
+    if spy_pct is not None:
+        filas.append(("S&P 500 (SPY)", spy_pct, spy_val))
+    mejor = max(f[1] for f in filas)
+    cols = st.columns(len(filas))
+    for col, (nombre, pct, val) in zip(cols, filas):
+        gana = pct == mejor
+        colr = GREEN if pct >= 0 else RED
+        borde = PURPLE if gana else "#E8ECF4"
+        corona = "🏆 " if gana else ""
+        col.markdown(f"""
+        <div style="background:#fff;border:{'1.5px' if gana else '0.5px'} solid {borde};
+                    border-radius:12px;padding:12px 10px;text-align:center;">
+            <div style="font-size:11px;color:#9DA5B8;">{corona}{nombre}</div>
+            <div style="font-size:19px;font-weight:700;color:{colr};">{pct:+.1f}%</div>
+            <div style="font-size:10.5px;color:#9DA5B8;">≈ ${val:,.0f} MXN</div>
+        </div>
+        """, unsafe_allow_html=True)
+    if spy_pct is None:
+        st.caption("⚠️ El S&P 500 no devolvió datos en este momento; intenta más tarde.")
+    st.caption("Simulación honesta: cada peso que invertiste (en su fecha real, con comisión) "
+               "puesto en cada alternativa. Tu lado = valor actual de tus posiciones + lo recibido "
+               "por ventas. S&P 500 con precios y tipo de cambio reales de cada día; CETES con la "
+               "tasa que indiques (interés compuesto). Referencias informativas, no asesoría.")
 
 
 def _rendimiento_realizado():

@@ -12,6 +12,7 @@ from modules.dividendos import render_dividendos
 from modules.objetivos import render_objetivos
 from modules.fibras import render_fibras
 from modules.copytrading import render_copytrading
+from modules.aprende import render_aprende
 from modules.bienvenida import necesita_bienvenida, render_bienvenida
 
 # Ícono/favicon de la app: el logo VestPlan (con respaldo a emoji si falta).
@@ -418,6 +419,8 @@ elif modulo == nav.AGENDA:
     render_agenda()
 elif modulo == nav.IMPORTAR:
     render_importar()
+elif modulo == nav.APRENDE:
+    render_aprende()
 else:
     render_inicio()
 

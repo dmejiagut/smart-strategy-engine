@@ -13,9 +13,11 @@ PERFIL = "👤 Perfil"
 AGENDA = "📅 Agenda"
 IMPORTAR = "📥 Importar"
 CONVIENE = "🎯 ¿Qué me conviene?"
+APRENDE = "📚 Aprende"
 
-# Módulos de estrategia (sub-páginas a las que se llega desde el hub Estrategias)
-MODULOS_ESTRATEGIA = [DCA, DIV, OBJ, FIB, COPY]
+# Módulos de estrategia (sub-páginas a las que se llega desde el hub Estrategias;
+# Aprende se incluye para que la barra inferior resalte 'Estrategias' al estudiar)
+MODULOS_ESTRATEGIA = [DCA, DIV, OBJ, FIB, COPY, APRENDE]
 
 OPCIONES = [INICIO, DCA, DIV, OBJ, FIB, COPY, RESULTADOS]
 
