@@ -34,6 +34,10 @@ RED = (200, 55, 55)
 
 _ICON_PATH = Path(__file__).parent.parent / "assets" / "vestplan_icon.png"
 
+# Dirección pública de la app: va al pie de la tarjeta para que quien la vea
+# en WhatsApp/redes sepa dónde entrar (marketing orgánico).
+APP_URL = "vestplan.streamlit.app"
+
 # Rutas de fuentes según el sistema (Windows local / Linux en Streamlit Cloud).
 _FONTS_BOLD = ["seguisb.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf",
                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
@@ -255,7 +259,7 @@ def generar_tarjeta_resultados(datos: dict) -> bytes:
                    fill=LIGHT_LINE, width=2)
 
     # ── Parte baja (cursor: estrategia más constante → píldora de meta) ──
-    y = 862
+    y = 856
     mejor_label = datos.get("mejor_label")
     if mejor_label and mejor_meses >= 1:
         _centrado(d, y, "MI ESTRATEGIA MÁS CONSTANTE", _font(22, bold=False), GREY, tracking=5)
@@ -275,8 +279,11 @@ def generar_tarjeta_resultados(datos: dict) -> bytes:
                         f"VAS AL {datos['meta_pct']:.0f}% DE TU META ANUAL", _font(28))
         d = ImageDraw.Draw(img)
 
-    # ── Eslogan al pie (con 'plan' y 'emociones' en morado, como el mockup) ──
-    _slogan(d, 1036)
+    # ── Eslogan + dónde encontrar la app ──
+    _slogan(d, 1020)
+    f_url = _font(21)
+    wu = d.textlength(APP_URL, font=f_url)
+    d.text((_W / 2 - wu / 2, 1052), APP_URL, font=f_url, fill=PURPLE)
 
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG", optimize=True)

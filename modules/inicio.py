@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v43"
+APP_VERSION = "VestPlan · v44"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -1142,14 +1142,14 @@ document.getElementById('wa').addEventListener('click', async () => {{
     const file = new File([arr], 'vestplan_mis_logros.png', {{type: 'image/png'}});
     if (navigator.canShare && navigator.canShare({{files: [file]}})) {{
       await navigator.share({{files: [file], title: 'Mi progreso en VestPlan',
-                              text: 'Mira mi progreso invirtiendo con un plan 📈'}});
+                              text: 'Mira mi progreso invirtiendo con un plan 📈 https://vestplan.streamlit.app'}});
       return;
     }}
   }} catch (e) {{
     if (e && e.name === 'AbortError') return;  // el usuario cerró el menú: no hacer nada
   }}
   window.open('https://wa.me/?text=' + encodeURIComponent(
-      '¡Mira mi progreso invirtiendo con un plan en VestPlan! 📈'), '_blank');
+      '¡Mira mi progreso invirtiendo con un plan en VestPlan! 📈 https://vestplan.streamlit.app'), '_blank');
 }});
 </script>
 </body>
