@@ -26,6 +26,7 @@ LECCIONES = [
     {
         "icono": "📊", "titulo": "DCA — comprar poquito, siempre",
         "resumen": "La estrategia más tranquila para empezar.",
+        "facts": ("Bajo", "Largo plazo", "Principiantes y constancia"),
         "puntos": [
             ("¿Qué es?", "Comprar la MISMA cantidad cada cierto tiempo (ej. 2 acciones cada mes), suba o baje el precio."),
             ("¿Por qué funciona?", "Al comprar en las buenas y en las malas, tu precio promedio se suaviza: no dependes de 'atinarle' al mejor momento."),
@@ -37,6 +38,7 @@ LECCIONES = [
     {
         "icono": "💰", "titulo": "Dividendos — que tus acciones te paguen renta",
         "resumen": "Ingresos periódicos por ser dueño.",
+        "facts": ("Medio", "Medio-largo", "Ingresos pasivos"),
         "puntos": [
             ("¿Qué es un dividendo?", "Una parte de las ganancias que la empresa reparte a sus dueños (tú, al tener acciones). Suele pagarse cada 3 meses."),
             ("El 'yield'", "Cuánto te paga al año como % del precio. Un yield de 3% en $10,000 son ≈ $300 al año."),
@@ -48,6 +50,7 @@ LECCIONES = [
     {
         "icono": "🏢", "titulo": "FIBRAs — bienes raíces desde la Bolsa",
         "resumen": "Ser 'casero' sin comprar un local.",
+        "facts": ("Medio", "Medio-largo", "Ingresos + bienes raíces"),
         "puntos": [
             ("¿Qué es una FIBRA?", "Un fideicomiso dueño de inmuebles (plazas, oficinas, naves industriales) que cotiza en la BMV. Compras CBFIs, que son como acciones."),
             ("Te pagan rentas", "Las FIBRAs están obligadas a repartir la mayor parte de sus rentas: recibes distribuciones periódicas."),
@@ -59,6 +62,7 @@ LECCIONES = [
     {
         "icono": "🎯", "titulo": "Por Objetivos — compra abajo, vende arriba (con plan)",
         "resumen": "Trading con reglas escritas ANTES de entrar.",
+        "facts": ("Alto", "Corto-medio", "Inversores activos"),
         "puntos": [
             ("La regla de oro", "Decide tu precio de ENTRADA y de SALIDA antes de comprar. Sin plan escrito, las emociones deciden por ti."),
             ("Soportes y resistencias", "Zonas donde el precio históricamente rebota (soporte) o se atora (resistencia). Ayudan a elegir tus niveles."),
@@ -70,6 +74,7 @@ LECCIONES = [
     {
         "icono": "👥", "titulo": "Copy Trading — aprende copiando a los grandes",
         "resumen": "Replica carteras de inversionistas famosos.",
+        "facts": ("Variable", "Medio-largo", "Aprender de expertos"),
         "puntos": [
             ("¿De dónde salen los datos?", "Los fondos grandes de EE.UU. publican sus carteras cada trimestre (reportes '13F'). Son públicos, pero llegan con ~45 días de retraso."),
             ("Copiar ≠ garantizar", "Copias sus posiciones, no sus resultados: ellos entraron a otros precios y en otro momento."),
@@ -131,7 +136,13 @@ GLOSARIO = [
 ]
 
 
+_RIESGO_COLOR = {"Bajo": "#1D9E75", "Medio": "#EF9F27", "Alto": "#E24B4A", "Variable": "#888780"}
+
+
 def render_aprende():
+    cb1, cb2 = st.columns([1.2, 3.8])
+    if cb1.button("← Perfil", key="apr_volver", use_container_width=True):
+        nav.goto(nav.PERFIL)
     st.markdown("""
     <div style="margin-bottom:16px;">
         <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0;">📚 Aprende a invertir</h2>
@@ -154,6 +165,20 @@ def _lecciones():
     st.caption(f"{len(LECCIONES)} lecciones de ~2 minutos. Empieza por la primera si eres nuevo.")
     for i, lec in enumerate(LECCIONES):
         with st.expander(f"{lec['icono']}  **{lec['titulo']}** — {lec['resumen']}"):
+            facts = lec.get("facts")
+            if facts:
+                riesgo, horizonte, ideal = facts
+                rc = _RIESGO_COLOR.get(riesgo, "#888780")
+                st.markdown(f"""
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <span style="font-size:11px;font-weight:600;color:{rc};background:#F8F9FC;
+                          border:0.5px solid #E8ECF4;border-radius:8px;padding:4px 10px;">Riesgo: {riesgo}</span>
+                    <span style="font-size:11px;font-weight:600;color:#4A5066;background:#F8F9FC;
+                          border:0.5px solid #E8ECF4;border-radius:8px;padding:4px 10px;">Horizonte: {horizonte}</span>
+                    <span style="font-size:11px;font-weight:600;color:#4A5066;background:#F8F9FC;
+                          border:0.5px solid #E8ECF4;border-radius:8px;padding:4px 10px;">Ideal para: {ideal}</span>
+                </div>
+                """, unsafe_allow_html=True)
             for titulo, cuerpo in lec["puntos"]:
                 st.markdown(
                     f"<div style='margin-bottom:10px;'>"

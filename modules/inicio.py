@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v42"
+APP_VERSION = "VestPlan · v43"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -72,52 +72,6 @@ MODULO_TAG = {"DCA": "Compras recurrentes", "Dividendos": "Ingresos pasivos",
               "Copy Trading": "Réplica de expertos"}
 MODULO_DEST = {"DCA": nav.DCA, "Dividendos": nav.DIV, "Por Objetivos": nav.OBJ,
                "FIBRAs": nav.FIB, "Copy Trading": nav.COPY}
-
-# Explicaciones amplias para gente que no sabe de finanzas (modal "Detalles")
-EXPLICACIONES = {
-    "DCA": {
-        "parrafos": [
-            "El <b>DCA</b> (compras promedio) consiste en invertir la misma cantidad cada cierto tiempo —por ejemplo cada mes— sin importar si el precio subió o bajó ese día.",
-            "Como compras siempre, a veces te toca caro y a veces barato, y con el tiempo tu precio promedio se suaviza. Así te quitas el estrés de adivinar cuál es el 'mejor momento' para entrar.",
-            "<b>Qué esperar:</b> es una estrategia tranquila y de largo plazo. No te hará rico de la noche a la mañana, pero reduce mucho el riesgo de equivocarte en el momento de compra.",
-        ],
-        "riesgo": "Bajo", "horizonte": "Largo plazo", "ideal": "Principiantes y constancia",
-    },
-    "Dividendos": {
-        "parrafos": [
-            "Algunas empresas reparten una parte de sus ganancias a quienes tienen sus acciones; eso es un <b>dividendo</b>, como una 'renta' por ser dueño de un pedacito de la empresa.",
-            "Esta estrategia busca acciones que pagan dividendos de forma constante (normalmente cada trimestre) para generar <b>ingresos pasivos</b> que llegan periódicamente.",
-            "<b>Qué esperar:</b> ingresos que caen poco a poco más que grandes saltos de precio. Es popular para quienes quieren un flujo estable y reinvertir esos pagos.",
-        ],
-        "riesgo": "Medio", "horizonte": "Medio-largo", "ideal": "Ingresos pasivos",
-    },
-    "Por Objetivos": {
-        "parrafos": [
-            "Defines un precio al que quieres <b>comprar</b> (entrada) y un precio al que quieres <b>vender</b> (tu meta), y sigues si el mercado llega a esos niveles.",
-            "Se apoya en análisis técnico: observar el comportamiento del precio para tomar decisiones de compra y venta más activas.",
-            "<b>Qué esperar:</b> más movimiento y atención de tu parte. Puede dar ganancias más rápidas, pero también implica <b>más riesgo</b> y estar pendiente del mercado.",
-        ],
-        "riesgo": "Alto", "horizonte": "Corto-medio", "ideal": "Inversores activos",
-    },
-    "FIBRAs": {
-        "parrafos": [
-            "Las <b>FIBRAs</b> son una forma de invertir en bienes raíces (centros comerciales, oficinas, naves industriales) comprando en la bolsa, sin tener que comprar una propiedad tú mismo.",
-            "Por ley reparten la mayor parte de sus rentas a los inversionistas, así que suelen pagar <b>distribuciones</b> periódicas, parecido a los dividendos.",
-            "<b>Qué esperar:</b> ingresos por rentas y exposición a bienes raíces mexicanos. Su precio puede moverse con las tasas de interés.",
-        ],
-        "riesgo": "Medio", "horizonte": "Medio-largo", "ideal": "Ingresos + bienes raíces",
-    },
-    "Copy Trading": {
-        "parrafos": [
-            "El <b>Copy Trading</b> consiste en replicar las carteras de grandes inversionistas: lo que ellos tienen, lo armas tú en proporción a tu dinero.",
-            "Aprovechas las decisiones de gente con experiencia, sin tener que analizar todo por tu cuenta desde cero.",
-            "<b>Qué esperar:</b> seguir el estilo de alguien más. Recuerda que los rendimientos pasados no garantizan los futuros, y tú decides cuánto seguir.",
-        ],
-        "riesgo": "Variable", "horizonte": "Medio-largo", "ideal": "Aprender de expertos",
-    },
-}
-_RIESGO_COLOR = {"Bajo": "#1D9E75", "Medio": "#EF9F27", "Alto": "#E24B4A", "Variable": "#888780"}
-
 
 def _alertas_objetivos():
     """Estrategias 'Por Objetivos' cuyo precio actual ya tocó tu punto de
@@ -683,20 +637,6 @@ def render_estrategias():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Elige una para empezar o seguir invirtiendo</p>
     </div>
     """, unsafe_allow_html=True)
-    # Acceso a la sección educativa (arriba: primero aprender, luego invertir)
-    with st.container(key="card_aprende"):
-        with st.container(border=True):
-            ca1, ca2 = st.columns([3.4, 1.6])
-            ca1.markdown(
-                "<div style='font-size:20px;'>📚 "
-                "<span style='font-size:14px;font-weight:600;color:#1a1a2e;vertical-align:3px;'>Aprende a invertir</span></div>"
-                "<div style='font-size:11.5px;color:#9DA5B8;line-height:1.35;margin-top:4px;'>"
-                "Mini-lecciones de 2 minutos y glosario — ideal si vas empezando.</div>",
-                unsafe_allow_html=True)
-            ca2.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-            if ca2.button("Aprender →", key="hub_aprende", use_container_width=True):
-                nav.goto(nav.APRENDE)
-
     # Recomendación según el perfil (estrella amarilla en las que encajan)
     perfil = get_perfil()
     recs = _recomendar(perfil.get("perfil_riesgo"), perfil.get("objetivo")) if perfil.get("perfil_riesgo") else []
@@ -713,60 +653,23 @@ def render_estrategias():
 
 
 def _fila_estrategia(t, key, badge=""):
-    """Una estrategia como fila tipo neobank: ícono + nombre + descripción + detalles/abrir."""
+    """Una estrategia como fila tipo neobank: ícono + nombre + descripción + abrir.
+    (La explicación de cada estrategia vive en 'Aprende', dentro de Perfil.)"""
     with st.container(border=True):
         if badge:
             st.markdown(
                 f"<div style='display:inline-block;font-size:11px;font-weight:600;color:#C77F00;"
                 f"background:#FFF6E0;border:0.5px solid #F2D9A0;border-radius:6px;padding:2px 8px;"
                 f"margin-bottom:6px;'>{badge}</div>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([3.2, 1.4, 1.4])
+        c1, c2 = st.columns([3.4, 1.6])
         c1.markdown(
             f"<div style='font-size:20px;'>{t['icono']} "
             f"<span style='font-size:14px;font-weight:600;color:#1a1a2e;vertical-align:3px;'>{t['titulo']}</span></div>"
             f"<div style='font-size:11.5px;color:#9DA5B8;line-height:1.35;margin-top:4px;'>{t['desc']}</div>",
             unsafe_allow_html=True)
         c2.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        if c2.button("Detalles", key=f"det_{key}", use_container_width=True):
-            _mostrar_detalles(t)
-        c3.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        if c3.button("Abrir →", key=key, type="primary", use_container_width=True):
+        if c2.button("Abrir →", key=key, type="primary", use_container_width=True):
             nav.goto(t["destino"])
-
-
-def _facts_html(info: dict) -> str:
-    rc = _RIESGO_COLOR.get(info["riesgo"], "#888780")
-    def box(label, valor, color="#1a1a2e"):
-        return (f"<div style='flex:1;min-width:130px;background:#F8F9FC;border:0.5px solid #E8ECF4;"
-                f"border-radius:10px;padding:10px 12px;'>"
-                f"<div style='font-size:10px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;'>{label}</div>"
-                f"<div style='font-size:13px;font-weight:600;color:{color};'>{valor}</div></div>")
-    return ("<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;'>"
-            + box("Riesgo", info["riesgo"], rc)
-            + box("Horizonte", info["horizonte"])
-            + box("Ideal para", info["ideal"])
-            + "</div>")
-
-
-def _mostrar_detalles(t):
-    info = EXPLICACIONES.get(t["titulo"])
-    if not info:
-        return
-
-    @st.dialog(f"{t['icono']}  {t['titulo']}", width="large")
-    def _dlg():
-        for p in info["parrafos"]:
-            st.markdown(
-                f"<p style='font-size:14px;color:#4A5066;line-height:1.65;margin:0 0 12px;'>{p}</p>",
-                unsafe_allow_html=True)
-        st.markdown(_facts_html(info), unsafe_allow_html=True)
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        if st.button(f"Abrir {t['titulo']} →", type="primary", use_container_width=True,
-                     key=f"dlg_open_{t['titulo']}"):
-            nav.goto(t["destino"])
-        st.caption("Herramienta educativa, no es asesoría financiera.")
-
-    _dlg()
 
 
 # ─── ¿Qué me conviene? (recomendación por perfil) ────────────────────────────
@@ -885,6 +788,19 @@ def render_perfil():
         <p style="font-size:12px;color:#9DA5B8;margin:4px 0 0;">Tus datos personalizan las sugerencias</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Acceso a la sección educativa (junto a los logros: aprende y gana 🎓)
+    with st.container(border=True):
+        ap1, ap2 = st.columns([3.4, 1.6])
+        ap1.markdown(
+            "<div style='font-size:20px;'>📚 "
+            "<span style='font-size:14px;font-weight:600;color:#1a1a2e;vertical-align:3px;'>Aprende a invertir</span></div>"
+            "<div style='font-size:11.5px;color:#9DA5B8;line-height:1.35;margin-top:4px;'>"
+            "Mini-lecciones de 2 minutos y glosario — ideal si vas empezando.</div>",
+            unsafe_allow_html=True)
+        ap2.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        if ap2.button("Aprender →", key="perfil_aprende", type="primary", use_container_width=True):
+            nav.goto(nav.APRENDE)
 
     _seccion_logros(perfil)
 
