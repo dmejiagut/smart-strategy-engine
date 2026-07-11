@@ -7,6 +7,7 @@ import streamlit as st
 from utils.ticker_search import get_precio_actual, get_tipo_cambio_actual, get_precios_varios
 from utils import nav
 from utils.db_utils import (
+    get_modo,                                              # 'real' o 'demo'
     load_strategies, load_purchases,                       # DCA
     load_div_strategies, load_div_purchases,               # Dividendos
     load_obj_strategies, load_obj_purchases, load_obj_sales,  # Objetivos
@@ -101,9 +102,9 @@ def _resumen_copy():
 def invalidar_resumen():
     """Recalcula solo el resumen (tras registrar compras/ventas o cambiar de modo),
     sin tirar la caché de precios de mercado — así la app sigue rápida."""
-    resumen_global.clear()
-    invertido_en_anio.clear()     # la barra de meta anual también debe refrescarse
-    aportaciones_por_mes.clear()  # y el detalle de ahorro por mes/año
+    _resumen_global_cached.clear()
+    _invertido_en_anio_cached.clear()   # la barra de meta anual también debe refrescarse
+    _aportaciones_por_mes_cached.clear()  # y el detalle de ahorro por mes/año
 
 
 def _prewarm_precios():
@@ -125,10 +126,13 @@ def _prewarm_precios():
         get_precios_varios(tickers)
 
 
+# NOTA sobre el caché: st.cache_data es GLOBAL entre sesiones y NO sabe del modo
+# real/demo (que vive fuera de los argumentos). Sin el parámetro `modo` en la
+# clave, una sesión en demo podía "heredar" el resumen cacheado de otra en real
+# (o viceversa) y mezclar estados. Por eso cada función cacheada recibe el modo
+# y el wrapper público le pasa el vigente.
 @st.cache_data(ttl=300)
-def aportaciones_por_mes() -> dict:
-    """Todo lo invertido (compras de TODOS los módulos), agrupado por mes:
-    {'YYYY-MM': monto MXN}. Alimenta el detalle de ahorro de la meta anual."""
+def _aportaciones_por_mes_cached(modo: str) -> dict:
     fx = get_tipo_cambio_actual()
     meses: dict = {}
 
@@ -154,10 +158,14 @@ def aportaciones_por_mes() -> dict:
     return meses
 
 
+def aportaciones_por_mes() -> dict:
+    """Todo lo invertido (compras de TODOS los módulos), agrupado por mes:
+    {'YYYY-MM': monto MXN}. Alimenta el detalle de ahorro de la meta anual."""
+    return _aportaciones_por_mes_cached(get_modo())
+
+
 @st.cache_data(ttl=300)
-def invertido_en_anio(anio: int) -> float:
-    """Suma, en MXN, todo lo invertido (compras) cuya fecha cae en el año dado.
-    Se usa para el progreso de la meta anual de inversión."""
+def _invertido_en_anio_cached(anio: int, modo: str) -> float:
     y = str(anio)
     fx = get_tipo_cambio_actual()
 
@@ -185,8 +193,14 @@ def invertido_en_anio(anio: int) -> float:
     return total
 
 
+def invertido_en_anio(anio: int) -> float:
+    """Suma, en MXN, todo lo invertido (compras) cuya fecha cae en el año dado.
+    Se usa para el progreso de la meta anual de inversión."""
+    return _invertido_en_anio_cached(anio, get_modo())
+
+
 @st.cache_data(ttl=300, show_spinner="Calculando tus resultados...")
-def resumen_global() -> dict:
+def _resumen_global_cached(modo: str) -> dict:
     _prewarm_precios()  # una sola petición para todos los precios (luego cada uno lee de la base)
     items = []
     items += _resumen_ticker(load_strategies(), load_purchases, "DCA", nav.DCA)
@@ -199,3 +213,7 @@ def resumen_global() -> dict:
     total_rend = (total_val / total_inv - 1) * 100 if total_inv else 0.0
     return {"items": items, "total_invertido": total_inv,
             "total_valor": total_val, "total_rend_pct": total_rend}
+
+
+def resumen_global() -> dict:
+    return _resumen_global_cached(get_modo())
