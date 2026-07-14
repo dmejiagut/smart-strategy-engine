@@ -210,8 +210,8 @@ div[data-testid="stHorizontalBlock"].navbar { border-top: 0.5px solid #E8ECF4; p
     /* Número del st.metric un poco más chico para que no se parta */
     [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
 }
-/* Ocultar los iframes de scripts auxiliares (cierra-calendario, confeti) */
-.st-key-dpfix, .st-key-confeti { display: none !important; }
+/* Ocultar los iframes de scripts auxiliares (cierra-calendario, confeti, voz) */
+.st-key-dpfix, .st-key-confeti, .st-key-voiceai { display: none !important; }
 
 /* Header superior de Inicio: campanita (pendientes) + avatar (perfil) */
 .st-key-topbar [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 2px !important; }
@@ -336,6 +336,52 @@ with st.container(key="dpfix"):
 if necesita_bienvenida():
     render_bienvenida()
     st.stop()
+
+
+# ── Agente de voz (ElevenLabs) — botón flotante "Vesti" ──────────────────────
+# Se integra para la ENTREGA del proyecto. Para quitarlo al publicar, basta con
+# vaciar el Agent ID (abajo) o borrar esta sección.
+# El Agent ID se lee de .streamlit/secrets.toml (clave ELEVENLABS_AGENT_ID); si
+# no hay secrets, usa la constante de respaldo. El widget se inyecta en el
+# documento PADRE (no en el iframe de Streamlit) para que el micrófono funcione.
+ELEVENLABS_AGENT_ID = ""  # ← pega aquí tu Agent ID de ElevenLabs (o usa secrets)
+
+
+def _agent_id() -> str:
+    try:
+        return st.secrets["ELEVENLABS_AGENT_ID"]
+    except Exception:
+        return ELEVENLABS_AGENT_ID
+
+
+_aid = _agent_id()
+if _aid:
+    with st.container(key="voiceai"):
+        components.html(
+            """
+<script>
+(function(){
+  var w = window.parent, d = w.document;
+  if (w.__vestVoice) return;            // no duplicar entre reruns
+  w.__vestVoice = true;
+  // Cargar el script del widget de ElevenLabs en el documento REAL.
+  var s = d.createElement('script');
+  s.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+  s.async = true; s.type = 'text/javascript';
+  d.body.appendChild(s);
+  // Insertar el widget (botón flotante). Se coloca arriba de la barra inferior.
+  var el = d.createElement('elevenlabs-convai');
+  el.setAttribute('agent-id', '__AGENT_ID__');
+  el.style.position = 'fixed';
+  el.style.right = '14px';
+  el.style.bottom = '90px';
+  el.style.zIndex = '1000';
+  d.body.appendChild(el);
+})();
+</script>
+""".replace("__AGENT_ID__", _aid),
+            height=0,
+        )
 
 _SVG_OPEN = ('<svg width="26" height="26" viewBox="0 0 24 24" fill="none" '
              'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" '
