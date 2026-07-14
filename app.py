@@ -344,7 +344,7 @@ if necesita_bienvenida():
 # El Agent ID se lee de .streamlit/secrets.toml (clave ELEVENLABS_AGENT_ID); si
 # no hay secrets, usa la constante de respaldo. El widget se inyecta en el
 # documento PADRE (no en el iframe de Streamlit) para que el micrófono funcione.
-ELEVENLABS_AGENT_ID = ""  # ← pega aquí tu Agent ID de ElevenLabs (o usa secrets)
+ELEVENLABS_AGENT_ID = "agent_4401kxf897b4f739hmbpt945rw7d"  # ElevenLabs "Vestplan Audio"
 
 
 def _agent_id() -> str:
