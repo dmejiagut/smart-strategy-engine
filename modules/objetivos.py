@@ -8,7 +8,7 @@ from utils.ticker_search import widget_buscador, get_precio_actual, get_tipo_cam
 from utils.comisiones import comision_desde_perfil
 from utils.technical_utils import get_ohlc, resample_ohlc, sugerir_entrada_salida
 from utils.db_utils import (
-    save_obj_strategy, load_obj_strategies, delete_obj_strategy,
+    save_obj_strategy, load_obj_strategies, delete_obj_strategy, load_obj_niveles,
     save_obj_purchase, load_obj_purchases, delete_obj_purchase,
     save_obj_sale, load_obj_sales, delete_obj_sale, log_venta_cerrada,
 )
@@ -58,7 +58,7 @@ def _wizard_obj():
         "y le das seguimiento. Lo armas en 3 pasos:",
         [
             ("1. Emisora", "Busca y elige la acción para ver su gráfica de precios de los últimos años."),
-            ("2. Análisis", "Explora la gráfica (línea/velas, medias móviles, Bollinger, RSI), usa '🤖 Analizar gráfica' y define tu precio de entrada (compra) y de salida (venta)."),
+            ("2. Análisis", "Explora la gráfica, usa '🤖 Analizar gráfica' y define tu meta de salida y tus puntos de entrada. Puedes agregar VARIOS puntos de entrada (compra escalonada), cada uno con sus acciones — se acumulan todas."),
             ("3. Confirmar", "Revisa tu objetivo y guárdalo en 'Mis estrategias'."),
             ("Después: registra tus operaciones", "En 'Mis estrategias' registras tus compras y ventas por lote."),
         ],
@@ -102,6 +102,26 @@ def _obj_paso_emisora():
             st.rerun()
     else:
         st.info("Busca una acción arriba para cargar su análisis técnico y continuar.")
+
+
+def _limpiar_keys_niveles(ticker: str, n: int):
+    """Borra las claves de los number_input de los niveles. Al agregar o quitar un
+    nivel los índices se recorren, así que hay que soltarlas para que se vuelvan a
+    sembrar desde obj_data (la fuente de verdad) en el siguiente run."""
+    for i in range(n + 2):
+        st.session_state.pop(f"obj_np_{ticker}_{i}", None)
+        st.session_state.pop(f"obj_nt_{ticker}_{i}", None)
+
+
+def _resumen_niveles(niveles, p_sal):
+    """(válidos, total_acciones, inversión, precio_promedio, ganancia, ganancia_%)."""
+    validos = [n for n in niveles if n.get("precio", 0) > 0 and n.get("titulos", 0) > 0]
+    tot = sum(n["titulos"] for n in validos)
+    inv = sum(n["precio"] * n["titulos"] for n in validos)
+    prom = inv / tot if tot else 0.0
+    gan = tot * p_sal - inv
+    pct = (gan / inv * 100) if inv else 0.0
+    return validos, tot, inv, prom, gan, pct
 
 
 def _obj_paso_analisis():
@@ -192,16 +212,20 @@ def _obj_paso_analisis():
     # Los restauramos desde obj_data: si el usuario pasó a Confirmar y regresó,
     # Streamlit ya purgó el estado de estos number_input (dejaron de dibujarse en el
     # paso 3). obj_data no se purga, así que ahí conservamos la fuente de verdad.
-    ent_key = f"obj_ent_{ticker}"
     sal_key = f"obj_sal_{ticker}"
-    st.session_state.setdefault(ent_key, float(d.get("p_ent") or 0.0))
     st.session_state.setdefault(sal_key, float(d.get("p_sal") or 0.0))
-    user_ent = st.session_state.get(ent_key) or 0.0
     user_sal = st.session_state.get(sal_key) or 0.0
+    # Niveles de entrada escalonada: la fuente de verdad vive en obj_data (no se
+    # purga al cambiar de paso); los number_input se re-siembran desde ahí.
+    niveles = d.setdefault("niveles", [{"precio": float(d.get("p_ent") or 0.0), "titulos": 1}])
+    for i, n in enumerate(niveles):
+        st.session_state.setdefault(f"obj_np_{ticker}_{i}", float(n.get("precio") or 0.0))
+        st.session_state.setdefault(f"obj_nt_{ticker}_{i}", int(n.get("titulos") or 1))
+    user_ents = [st.session_state.get(f"obj_np_{ticker}_{i}") or 0.0 for i in range(len(niveles))]
 
     st.plotly_chart(
         _chart_tecnico(dfx, ticker, tipo_chart, show_ma, show_bb,
-                       user_ent if user_ent > 0 else None,
+                       [p for p in user_ents if p > 0],
                        user_sal if user_sal > 0 else None),
         use_container_width=True, config={"displayModeBar": False})
     if show_rsi:
@@ -214,7 +238,9 @@ def _obj_paso_analisis():
         res = sugerir_entrada_salida(dfx)
         if res.get("ok"):
             st.session_state[sug_key] = res
-            st.session_state[f"obj_ent_{ticker}"] = float(res["entrada"])
+            # La sugerencia llena el PRIMER nivel de entrada y la meta de salida.
+            d["niveles"][0]["precio"] = float(res["entrada"])
+            _limpiar_keys_niveles(ticker, len(d["niveles"]))
             st.session_state[f"obj_sal_{ticker}"] = float(res["salida"])
             st.rerun()
         else:
@@ -245,55 +271,91 @@ def _obj_paso_analisis():
         🎯 Define tu objetivo de trading (precios en {moneda})
     </div>
     """, unsafe_allow_html=True)
-    st.caption("💡 Empiezan en $0. Al escribir tu precio de entrada y de salida, verás sus "
-               "líneas moverse en la gráfica de arriba.")
-    ce1, ce2 = st.columns(2)
-    with ce1:
-        st.markdown(f"""<div style="background:#E8FBF4;border:1.5px solid {GREEN};border-radius:12px;padding:14px 18px;">
-            <div style="font-size:12px;font-weight:600;color:{GREEN};text-transform:uppercase;letter-spacing:.05em;">▼ Precio de ENTRADA (compra)</div>
-        </div>""", unsafe_allow_html=True)
-        precio_entrada = st.number_input(f"Entrada ({moneda})", min_value=0.0, step=0.5,
-                                         format="%.2f", key=ent_key, label_visibility="collapsed")
-    with ce2:
-        st.markdown(f"""<div style="background:#FFF6E5;border:1.5px solid {GOLD};border-radius:12px;padding:14px 18px;">
-            <div style="font-size:12px;font-weight:600;color:{GOLD};text-transform:uppercase;letter-spacing:.05em;">▲ Precio de SALIDA (venta)</div>
-        </div>""", unsafe_allow_html=True)
-        precio_salida = st.number_input(f"Salida ({moneda})", min_value=0.0, step=0.5,
-                                        format="%.2f", key=sal_key, label_visibility="collapsed")
+    st.caption("💡 Empiezan en $0. Al escribir tus precios verás sus líneas moverse "
+               "en la gráfica de arriba.")
 
-    # Guardamos los precios en obj_data (no se purga al cambiar de paso), para que
-    # Confirmar los lea y para restaurarlos si el usuario regresa a este paso.
-    d["p_ent"] = float(precio_entrada)
-    d["p_sal"] = float(precio_salida)
+    # ── Meta de SALIDA (una sola, compartida por todos los niveles) ──
+    st.markdown(f"""<div style="background:#FFF6E5;border:1.5px solid {GOLD};border-radius:12px;padding:12px 18px;">
+        <div style="font-size:12px;font-weight:600;color:{GOLD};text-transform:uppercase;letter-spacing:.05em;">▲ Precio de SALIDA — tu meta (vendes aquí)</div>
+    </div>""", unsafe_allow_html=True)
+    precio_salida = st.number_input(f"Salida ({moneda})", min_value=0.0, step=0.5,
+                                    format="%.2f", key=sal_key, label_visibility="collapsed")
 
-    # Ganancia objetivo (solo con ambos precios definidos)
-    tiene_obj = precio_entrada > 0 and precio_salida > 0
-    gan_usd = precio_salida - precio_entrada
-    gan_pct = (gan_usd / precio_entrada * 100) if precio_entrada > 0 else 0
-    col_g = (GREEN if gan_usd >= 0 else RED) if tiene_obj else "#9DA5B8"
-    gan_usd_txt = f"${gan_usd:,.2f} {moneda}" if tiene_obj else "—"
-    gan_pct_txt = f"{gan_pct:+.2f}%" if tiene_obj else "—"
-    st.markdown(f"""
-    <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:14px 20px;margin-top:12px;
-                display:flex;justify-content:space-around;align-items:center;text-align:center;">
-        <div><div style="font-size:11px;color:#9DA5B8;">Precio actual</div>
-             <div style="font-size:18px;font-weight:600;color:#1a1a2e;">${precio_actual:,.2f}</div></div>
-        <div style="font-size:22px;color:#D0D4DE;">→</div>
-        <div><div style="font-size:11px;color:#9DA5B8;">Ganancia por acción</div>
-             <div style="font-size:18px;font-weight:600;color:{col_g};">{gan_usd_txt}</div></div>
-        <div style="font-size:22px;color:#D0D4DE;">·</div>
-        <div><div style="font-size:11px;color:#9DA5B8;">Rendimiento objetivo</div>
-             <div style="font-size:22px;font-weight:700;color:{col_g};">{gan_pct_txt}</div></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if tiene_obj and precio_salida <= precio_entrada:
-        st.caption("⚠️ El precio de salida es menor o igual al de entrada — revisa tu objetivo.")
-
+    # ── Niveles de ENTRADA escalonada (uno o varios, cada uno con sus acciones) ──
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    st.caption("Solo necesitas definir tu punto de entrada y de salida. "
-               "El tipo de cambio se aplicará al momento de registrar la compra o la venta.")
-    objetivo_valido = tiene_obj and precio_salida > precio_entrada
+    st.markdown(f"""<div style="background:#E8FBF4;border:1.5px solid {GREEN};border-radius:12px;padding:12px 18px;">
+        <div style="font-size:12px;font-weight:600;color:{GREEN};text-transform:uppercase;letter-spacing:.05em;">▼ Puntos de ENTRADA (compras) — acumulas todas</div>
+    </div>""", unsafe_allow_html=True)
+    st.caption("Compra escalonada: agrega los precios a los que quieres comprar y cuántas "
+               "acciones en cada uno. Sirve para promediar a la baja (1 a $120, 2 a $110, "
+               "5 a $100) o para acumular a la alza (3 a $100, 2 a $110, 1 a $120).")
+
+    hc = st.columns([2, 1.6, 0.6])
+    for c, h in zip(hc, [f"Precio ({moneda})", "Acciones", ""]):
+        c.markdown(f"<div style='font-size:11px;color:#9DA5B8;font-weight:600;'>{h}</div>",
+                   unsafe_allow_html=True)
+    for i in range(len(niveles)):
+        cn = st.columns([2, 1.6, 0.6])
+        p = cn[0].number_input(f"Precio nivel {i+1}", min_value=0.0, step=0.5, format="%.2f",
+                               key=f"obj_np_{ticker}_{i}", label_visibility="collapsed")
+        t = cn[1].number_input(f"Acciones nivel {i+1}", min_value=1, step=1,
+                               key=f"obj_nt_{ticker}_{i}", label_visibility="collapsed")
+        niveles[i] = {"precio": float(p), "titulos": int(t)}
+        if len(niveles) > 1:
+            if cn[2].button("🗑", key=f"obj_ndel_{ticker}_{i}", help="Quitar este punto de entrada"):
+                niveles.pop(i)
+                _limpiar_keys_niveles(ticker, len(niveles) + 1)
+                st.rerun()
+    if st.button("➕ Agregar otro punto de entrada", key=f"obj_nadd_{ticker}",
+                 use_container_width=True):
+        niveles.append({"precio": 0.0, "titulos": 1})
+        _limpiar_keys_niveles(ticker, len(niveles))
+        st.rerun()
+
+    # Guardamos en obj_data (no se purga al cambiar de paso): Confirmar lo lee de aquí.
+    d["p_sal"] = float(precio_salida)
+    d["niveles"] = niveles
+    d["p_ent"] = float(niveles[0]["precio"]) if niveles else 0.0
+
+    # ── Resumen acumulado del plan ──
+    validos = [n for n in niveles if n["precio"] > 0 and n["titulos"] > 0]
+    tiene_obj = bool(validos) and precio_salida > 0
+    fuera = [n for n in validos if n["precio"] >= precio_salida] if precio_salida > 0 else []
+    objetivo_valido = tiene_obj and not fuera
+
+    if tiene_obj:
+        tot_acc = sum(n["titulos"] for n in validos)
+        inversion = sum(n["precio"] * n["titulos"] for n in validos)
+        prom = inversion / tot_acc if tot_acc else 0
+        valor_meta = tot_acc * precio_salida
+        gan = valor_meta - inversion
+        gan_pct = (gan / inversion * 100) if inversion else 0
+        col_g = GREEN if gan >= 0 else RED
+        st.markdown(f"""
+        <div style="background:#fff;border:0.5px solid #E8ECF4;border-radius:12px;padding:14px 20px;margin-top:12px;
+                    display:flex;justify-content:space-around;align-items:center;text-align:center;flex-wrap:wrap;gap:10px;">
+            <div><div style="font-size:11px;color:#9DA5B8;">Precio actual</div>
+                 <div style="font-size:16px;font-weight:600;color:#1a1a2e;">${precio_actual:,.2f}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;">Acciones si se llenan todas</div>
+                 <div style="font-size:16px;font-weight:600;color:#1a1a2e;">{tot_acc}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;">Precio promedio</div>
+                 <div style="font-size:16px;font-weight:600;color:#1a1a2e;">${prom:,.2f}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;">Inversión total</div>
+                 <div style="font-size:16px;font-weight:600;color:#1a1a2e;">${inversion:,.2f}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;">Ganancia en tu meta</div>
+                 <div style="font-size:19px;font-weight:700;color:{col_g};">${gan:,.2f} · {gan_pct:+.2f}%</div></div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption(f"Si el precio toca tus {len(validos)} punto(s) y luego vendes todo en "
+                   f"${precio_salida:,.2f}. Precios en {moneda}; comisión+IVA se aplica al "
+                   "registrar cada operación real.")
+
+    if fuera:
+        lista = ", ".join(f"${n['precio']:,.2f}" for n in fuera)
+        st.warning(f"⚠️ Cada punto de entrada debe ser MENOR que tu salida "
+                   f"(${precio_salida:,.2f}). Revisa: {lista}.")
+    elif not tiene_obj:
+        st.caption("Define tu precio de salida y al menos un punto de entrada para continuar.")
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     c_back, c_next = st.columns([1, 2])
@@ -317,44 +379,58 @@ def _obj_paso_confirmar():
         st.rerun()
     nombre = d.get("nombre", ticker)
     moneda = d.get("moneda", "USD")
-    p_ent = d.get("p_ent") or 0.0
     p_sal = d.get("p_sal") or 0.0
-    if not (p_ent > 0 and p_sal > p_ent):
-        st.warning("Faltan precios válidos de entrada y salida. Vuelve al paso de Análisis.")
+    niveles = d.get("niveles") or []
+    validos, tot_acc, inversion, prom, gan, gan_pct = _resumen_niveles(niveles, p_sal)
+    fuera = [n for n in validos if n["precio"] >= p_sal] if p_sal > 0 else []
+    if not validos or p_sal <= 0 or fuera:
+        st.warning("Faltan precios válidos: cada punto de entrada debe ser menor que tu "
+                   "salida. Vuelve al paso de Análisis.")
         if st.button("← Atrás", key="obj_back3_err"):
             st.session_state.obj_step = 2
             st.rerun()
         return
-    gan = p_sal - p_ent
-    gan_pct = gan / p_ent * 100 if p_ent else 0
+    filas = "".join(
+        f"<tr><td style='padding:4px 10px 4px 0;font-size:13px;color:#1a1a2e;'>Entrada {i+1}</td>"
+        f"<td style='padding:4px 10px;font-size:13px;font-weight:600;color:{GREEN};'>${n['precio']:,.2f}</td>"
+        f"<td style='padding:4px 0;font-size:13px;color:#4A5066;'>{n['titulos']} acción(es)</td></tr>"
+        for i, n in enumerate(validos))
     st.markdown(f"""
     <div style="background:#fff;border-radius:12px;border:0.5px solid #E8ECF4;padding:18px 22px;">
         <div style="font-size:16px;font-weight:600;color:#1a1a2e;">🎯 {nombre} ({ticker})</div>
-        <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;">
-            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Entrada (compra)</div>
-                 <div style="font-size:15px;font-weight:600;color:{GREEN};">${p_ent:,.2f} {moneda}</div></div>
-            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Salida (venta)</div>
+        <table style="margin-top:10px;border-collapse:collapse;">{filas}</table>
+        <div style="border-top:1px solid #E8ECF4;margin:10px 0 8px;"></div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Salida (tu meta)</div>
                  <div style="font-size:15px;font-weight:600;color:{GOLD};">${p_sal:,.2f} {moneda}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Acciones acumuladas</div>
+                 <div style="font-size:15px;font-weight:600;color:#1a1a2e;">{tot_acc}</div></div>
+            <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Precio promedio</div>
+                 <div style="font-size:15px;font-weight:600;color:#1a1a2e;">${prom:,.2f}</div></div>
             <div><div style="font-size:11px;color:#9DA5B8;text-transform:uppercase;letter-spacing:.05em;">Rendimiento objetivo</div>
                  <div style="font-size:15px;font-weight:700;color:{PURPLE};">{gan_pct:+.2f}%</div></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.info("Vas a guardar esta estrategia por objetivos. "
-            "Después registras tus compras y ventas por lote en 'Mis estrategias'.")
+    st.info(f"Vas a guardar esta estrategia con **{len(validos)} punto(s) de entrada** y una "
+            f"meta de salida. Después registras tus compras y ventas por lote en 'Mis estrategias'.")
     c_back, c_ok = st.columns([1, 2])
     if c_back.button("← Atrás", use_container_width=True, key="obj_back3"):
         st.session_state.obj_step = 2
         st.rerun()
     if c_ok.button("✅ Confirmar y guardar", type="primary", use_container_width=True, key="obj_confirm"):
-        save_obj_strategy(ticker, nombre, p_ent, p_sal, get_tipo_cambio_actual())
+        save_obj_strategy(ticker, nombre, validos[0]["precio"], p_sal,
+                          get_tipo_cambio_actual(), niveles=validos)
+        _limpiar_keys_niveles(ticker, len(niveles))
+        st.session_state.pop(f"obj_sal_{ticker}", None)
         st.session_state.obj_step = 1
         st.session_state.obj_data = {}
         st.session_state["_obj_goto_mis"] = True
         st.rerun()
 
 
-def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user_sal=None):
+def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ents=None, user_sal=None):
+    """user_ents: lista de precios de entrada (escalonada). user_sal: meta de salida."""
     fig = go.Figure()
     if show_bb:
         fig.add_trace(go.Scatter(x=df["Fecha"], y=df["BB_up"], name="BB superior",
@@ -383,9 +459,11 @@ def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user
         fig.add_trace(go.Scatter(x=df["Fecha"], y=df["SMA200"], name="SMA 200",
                                  line=dict(color="#A32D2D", width=1.5)))
     # Líneas del usuario: se mueven en vivo al ajustar los precios de entrada/salida.
-    if user_ent is not None:
-        fig.add_hline(y=user_ent, line=dict(color=GREEN, width=2, dash="dash"),
-                      annotation_text=f"▼ Tu entrada ${user_ent:,.2f}",
+    ents = [p for p in (user_ents or []) if p and p > 0]
+    for i, p in enumerate(ents):
+        etiqueta = f"▼ Entrada {i+1}: ${p:,.2f}" if len(ents) > 1 else f"▼ Tu entrada ${p:,.2f}"
+        fig.add_hline(y=p, line=dict(color=GREEN, width=2, dash="dash"),
+                      annotation_text=etiqueta,
                       annotation_font_color=GREEN, annotation_position="bottom right")
     if user_sal is not None:
         fig.add_hline(y=user_sal, line=dict(color=GOLD, width=2, dash="dash"),
@@ -398,7 +476,7 @@ def _chart_tecnico(df, ticker, tipo_chart, show_ma, show_bb, user_ent=None, user
     if show_bb and "BB_low" in df.columns:
         lows.append(df["BB_low"].min())
         highs.append(df["BB_up"].max())
-    for v in (user_ent, user_sal):
+    for v in list(ents) + [user_sal]:
         if v:
             lows.append(v)
             highs.append(v)
@@ -552,6 +630,39 @@ def _detalle_obj(e: dict):
               delta=f"${p_sal-p_ent:,.2f}/acción", delta_color="off")
     if precio_usd:
         st.caption(f"Precio actual de {ticker}: \\${precio_usd:,.2f} {'MXN' if es_mx else 'USD'}")
+
+    # ── Plan de entrada escalonada (si la estrategia lo tiene) ──
+    niveles = load_obj_niveles(eid)
+    if niveles:
+        _seccion("Tu plan de entrada escalonada", GREEN)
+        _, tot_acc, inversion, prom, gan, gan_pct = _resumen_niveles(
+            [{"precio": n["precio"], "titulos": n["titulos"]} for n in niveles], p_sal)
+        enc = st.columns([0.9, 1.3, 1.1, 1.5])
+        for c, h in zip(enc, ["Punto", "Precio", "Acciones", "Estado"]):
+            c.markdown(f"<div style='font-size:11px;color:#9DA5B8;font-weight:600;'>{h}</div>",
+                       unsafe_allow_html=True)
+        for i, n in enumerate(niveles):
+            # Con precio actual en o por debajo del nivel, ya puedes comprar ahí
+            # (una orden de compra limitada a ese precio ya se habría ejecutado).
+            alcanzado = precio_usd is not None and precio_usd <= n["precio"]
+            est_txt = "✅ Alcanzado" if alcanzado else "⏳ Esperando"
+            est_col = GREEN if alcanzado else "#9DA5B8"
+            cols = st.columns([0.9, 1.3, 1.1, 1.5])
+            cols[0].markdown(f"<div style='font-size:12.5px;padding:3px 0;'>Entrada {i+1}</div>",
+                             unsafe_allow_html=True)
+            cols[1].markdown(f"<div style='font-size:12.5px;font-weight:600;color:{GREEN};padding:3px 0;'>"
+                             f"${n['precio']:,.2f}</div>", unsafe_allow_html=True)
+            cols[2].markdown(f"<div style='font-size:12.5px;padding:3px 0;'>{n['titulos']}</div>",
+                             unsafe_allow_html=True)
+            cols[3].markdown(f"<div style='font-size:12.5px;font-weight:600;color:{est_col};padding:3px 0;'>"
+                             f"{est_txt}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='font-size:12px;color:#4A5066;margin-top:6px;'>"
+            f"Si se llenan todas: <b>{tot_acc}</b> acciones · promedio <b>${prom:,.2f}</b> · "
+            f"inversión <b>${inversion:,.2f}</b> · ganancia en tu meta "
+            f"<b style='color:{GREEN if gan >= 0 else RED};'>${gan:,.2f} ({gan_pct:+.2f}%)</b>"
+            f"</div>", unsafe_allow_html=True)
+        st.caption("Es tu PLAN: cuando compres de verdad, regístralo abajo con el precio real.")
 
     # ── Historial de compras ──
     compras = load_obj_purchases(eid)

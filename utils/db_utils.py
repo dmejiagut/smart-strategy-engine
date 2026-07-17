@@ -128,6 +128,18 @@ def init_db():
             creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
+    # Niveles de entrada escalonada: varios precios de compra (cada uno con sus
+    # títulos) para UNA misma meta de salida. Si una estrategia no tiene niveles,
+    # es de las viejas: su única entrada vive en estrategias_objetivos.precio_entrada.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS niveles_objetivos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            estrategia_id INTEGER NOT NULL,
+            precio REAL NOT NULL,
+            titulos INTEGER NOT NULL,
+            orden INTEGER DEFAULT 0
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS compras_objetivos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -632,7 +644,10 @@ def delete_fibra_purchase(purchase_id: int):
 # ── Estrategias por objetivos ──────────────────────────────────────────────────
 
 def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
-                      precio_salida: float, tipo_cambio: float = 1.0) -> int:
+                      precio_salida: float, tipo_cambio: float = 1.0,
+                      niveles: list[dict] | None = None) -> int:
+    """niveles: entrada escalonada [{precio, titulos}, ...] para la misma meta de
+    salida. precio_entrada queda como la entrada principal (el primer nivel)."""
     init_db()
     from utils.pipeline import pipeline_guardado, registrar_guardado
     chequeo = pipeline_guardado("Por Objetivos", {
@@ -647,10 +662,30 @@ def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
         (ticker, nombre, float(precio_entrada), float(precio_salida), float(tipo_cambio)),
     )
     new_id = cur.lastrowid
+    for i, n in enumerate(niveles or []):
+        if float(n.get("precio") or 0) <= 0 or int(n.get("titulos") or 0) <= 0:
+            continue
+        conn.execute(
+            "INSERT INTO niveles_objetivos (estrategia_id, precio, titulos, orden) "
+            "VALUES (?, ?, ?, ?)",
+            (new_id, float(n["precio"]), int(n["titulos"]), i),
+        )
     conn.commit()
     conn.close()
     registrar_guardado("Por Objetivos", chequeo["version"], new_id)
     return int(new_id)
+
+
+def load_obj_niveles(estrategia_id: int) -> list[dict]:
+    """Niveles de entrada escalonada de una estrategia. Lista vacía si es una
+    estrategia vieja (de una sola entrada, sin cantidad planeada)."""
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM niveles_objetivos WHERE estrategia_id = ? ORDER BY orden, id",
+        (estrategia_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 def load_obj_strategies() -> list[dict]:
     init_db()
@@ -662,6 +697,7 @@ def load_obj_strategies() -> list[dict]:
 def delete_obj_strategy(strategy_id: int):
     conn = _get_conn()
     conn.execute("DELETE FROM estrategias_objetivos WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM niveles_objetivos WHERE estrategia_id = ?", (strategy_id,))
     conn.execute("DELETE FROM compras_objetivos WHERE estrategia_id = ?", (strategy_id,))
     conn.execute("DELETE FROM ventas_objetivos WHERE estrategia_id = ?", (strategy_id,))
     conn.commit()

@@ -23,7 +23,7 @@ RED = "#A32D2D"
 
 # Versión visible para confirmar qué código está corriendo en la nube.
 # Súbela cada vez que despliegues algo que quieras verificar en el celular.
-APP_VERSION = "VestPlan · v47"
+APP_VERSION = "VestPlan · v48"
 
 ESLOGAN = "Invierte con un plan. No con emociones."
 
@@ -76,7 +76,7 @@ MODULO_DEST = {"DCA": nav.DCA, "Dividendos": nav.DIV, "Por Objetivos": nav.OBJ,
 def _alertas_objetivos():
     """Estrategias 'Por Objetivos' cuyo precio actual ya tocó tu punto de
     entrada (compra) o de salida (venta). Usa el precio cacheado (máx 5 min)."""
-    from utils.db_utils import load_obj_strategies
+    from utils.db_utils import load_obj_strategies, load_obj_niveles
     from utils.ticker_search import get_precio_actual
     alertas = []
     for e in load_obj_strategies():
@@ -84,12 +84,24 @@ def _alertas_objetivos():
         px = q.get("precio") if q else None
         if not px:
             continue
-        ent = float(e.get("precio_entrada") or 0)
         sal = float(e.get("precio_salida") or 0)
         if sal > 0 and px >= sal:
             alertas.append({"ticker": e["ticker"], "tipo": "salida", "precio": px, "objetivo": sal})
-        elif ent > 0 and px <= ent:
-            alertas.append({"ticker": e["ticker"], "tipo": "entrada", "precio": px, "objetivo": ent})
+            continue
+        # Entrada: con escalera, avisamos del nivel más alto ya alcanzado (el que
+        # toca comprar) y cuántas acciones planeaste ahí.
+        niveles = load_obj_niveles(e["id"])
+        if niveles:
+            tocados = [n for n in niveles if px <= float(n["precio"])]
+            if tocados:
+                n = max(tocados, key=lambda x: float(x["precio"]))
+                alertas.append({"ticker": e["ticker"], "tipo": "entrada", "precio": px,
+                                "objetivo": float(n["precio"]), "titulos": int(n["titulos"])})
+        else:
+            ent = float(e.get("precio_entrada") or 0)
+            if ent > 0 and px <= ent:
+                alertas.append({"ticker": e["ticker"], "tipo": "entrada", "precio": px,
+                                "objetivo": ent})
     return alertas
 
 
