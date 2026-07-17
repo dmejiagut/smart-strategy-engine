@@ -16,3 +16,5 @@ google-auth-httplib2>=0.2.0
 google-api-python-client>=2.126.0
 openpyxl>=3.1.0
 reportlab>=4.0.0
+# Postgres (Supabase) — multiusuario. Si no hay DATABASE_URL, la app usa SQLite.
+psycopg[binary]>=3.2.0
