@@ -52,6 +52,43 @@ def usuario_efectivo() -> str:
     return f"{_USUARIO}::demo" if _MODO == "demo" else _USUARIO
 
 
+# ── Caché de lecturas ────────────────────────────────────────────────────────
+# Al pintar una pantalla la app pregunta lo MISMO muchas veces (medido: el perfil
+# 6 veces, las estrategias 6-7 veces… ~74 consultas para Inicio). Contra un
+# archivo SQLite eso costaba microsegundos; contra la nube son 161 ms cada una.
+# Aquí se recuerda lo leído y se olvida TODO en cuanto algo se escribe, así nunca
+# se sirve información vieja.
+_CACHE: dict = {}
+
+
+def _invalidar_cache():
+    """Cualquier escritura tira el caché: la próxima lectura va a la base."""
+    _CACHE.clear()
+
+
+def _cache_lectura(fn):
+    """Recuerda el resultado de una lectura mientras nadie escriba.
+    La llave incluye al usuario: los datos de uno nunca se sirven a otro."""
+    import functools
+
+    @functools.wraps(fn)
+    def envoltorio(*args, **kwargs):
+        try:
+            llave = (fn.__name__, usuario_efectivo(), args,
+                     tuple(sorted(kwargs.items())))
+            hash(llave)
+        except TypeError:
+            return fn(*args, **kwargs)      # argumentos raros: mejor no cachear
+        if llave in _CACHE:
+            return _CACHE[llave]
+        valor = fn(*args, **kwargs)
+        _CACHE[llave] = valor
+        return valor
+
+    envoltorio._sin_cache = fn
+    return envoltorio
+
+
 def _db_path() -> Path:
     return DB_DIR / DB_FILES["real"]
 
@@ -432,6 +469,7 @@ def _adoptar_datos_viejos(conn):
 
 # ── Perfil del usuario ─────────────────────────────────────────────────────────
 
+@_cache_lectura
 def get_perfil() -> dict:
     init_db()
     conn = _get_conn()
@@ -443,6 +481,7 @@ def get_perfil() -> dict:
 
 def _set_campo_perfil(campo: str, valor):
     """Guarda UN campo del perfil del usuario actual (crea su fila si no existe)."""
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -455,24 +494,29 @@ def _set_campo_perfil(campo: str, valor):
 
 def set_comision_pct(pct: float):
     """Guarda el % de comisión de la casa de bolsa en el perfil (aplica de aquí en adelante)."""
+    _invalidar_cache()
     _set_campo_perfil("comision_pct", float(pct))
 
 
 def set_meta_anual(pct: float):
     """Guarda la meta anual de rendimiento (%) del usuario."""
+    _invalidar_cache()
     _set_campo_perfil("meta_anual", float(pct))
 
 
 def set_casa_bolsa(nombre: str):
     """Guarda la casa de bolsa (broker) que usa el usuario."""
+    _invalidar_cache()
     _set_campo_perfil("casa_bolsa", nombre)
 
 
 def set_meta_monto(monto: float):
     """Guarda la meta anual de inversión (monto en MXN que el usuario busca invertir en el año)."""
+    _invalidar_cache()
     _set_campo_perfil("meta_monto", float(monto))
 
 
+@_cache_lectura
 def load_logros() -> dict:
     """{clave: fecha} de los logros ya desbloqueados por el usuario actual."""
     init_db()
@@ -485,6 +529,7 @@ def load_logros() -> dict:
 
 def guardar_logro(clave: str):
     """Marca un logro como desbloqueado (idempotente: no duplica ni actualiza)."""
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -499,6 +544,7 @@ def guardar_logro(clave: str):
 def guardar_snapshot_patrimonio(invertido: float, valor: float):
     """Guarda (o actualiza) el valor del portafolio de HOY. Una fila por día y
     por usuario, así que llamarla muchas veces al día no genera basura ni pesa."""
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     hoy = date.today().isoformat()
@@ -525,6 +571,7 @@ def save_perfil(data: dict):
     """Guarda los datos personales del usuario actual.
     Placeholders posicionales (?) a propósito: los de nombre (:campo) solo
     existen en SQLite y romperían en Postgres."""
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     vals = (data.get("nombre"), data.get("edad"), data.get("ingreso_mensual"),
@@ -544,6 +591,7 @@ def save_perfil(data: dict):
 
 def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
                        reporte_base: str = "") -> int:
+    _invalidar_cache()
     init_db()
     if not reporte_base:
         from utils.copytrading_utils import TRIMESTRE_ACTUAL
@@ -572,6 +620,7 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
     registrar_guardado("Copy Trading", chequeo["version"], new_id)
     return int(new_id)
 
+@_cache_lectura
 def load_copy_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -581,6 +630,7 @@ def load_copy_strategies() -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_copy_strategy(strategy_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     compras = conn.execute("SELECT id FROM compras_copy WHERE estrategia_id = ?", (strategy_id,)).fetchall()
     for c in compras:
@@ -594,6 +644,7 @@ def delete_copy_strategy(strategy_id: int):
 def save_copy_purchase(estrategia_id: int, fecha, monto_mxn: float, tipo_cambio: float,
                        detalle: list[dict], comision: float = 0.0) -> int:
     """detalle: lista de {ticker, titulos, precio_usd}. comision: MXN (com.+IVA)."""
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     cur = conn.execute(
@@ -613,6 +664,7 @@ def save_copy_purchase(estrategia_id: int, fecha, monto_mxn: float, tipo_cambio:
     conn.close()
     return int(compra_id)
 
+@_cache_lectura
 def load_copy_purchases(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -632,6 +684,7 @@ def load_copy_purchases(estrategia_id: int) -> list[dict]:
     return result
 
 def delete_copy_purchase(compra_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM detalle_copy WHERE compra_id = ?", (compra_id,))
     conn.execute("DELETE FROM compras_copy WHERE id = ?", (compra_id,))
@@ -642,6 +695,7 @@ def delete_copy_purchase(compra_id: int):
 def delete_copy_detalle(detalle_id: int):
     """Borra UNA compra individual (un renglón de detalle) de una cartera copiada.
     Si su canasta queda vacía, también la elimina."""
+    _invalidar_cache()
     conn = _get_conn()
     row = conn.execute("SELECT compra_id FROM detalle_copy WHERE id = ?", (detalle_id,)).fetchone()
     conn.execute("DELETE FROM detalle_copy WHERE id = ?", (detalle_id,))
@@ -655,6 +709,7 @@ def delete_copy_detalle(detalle_id: int):
     conn.close()
 
 
+@_cache_lectura
 def titulos_vendidos_copy(estrategia_id: int, ticker: str) -> int:
     """Acciones ya vendidas de UN ticker dentro de una cartera copiada."""
     init_db()
@@ -667,6 +722,7 @@ def titulos_vendidos_copy(estrategia_id: int, ticker: str) -> int:
     return int(row["s"] or 0)
 
 
+@_cache_lectura
 def posiciones_copy(estrategia_id: int) -> list[dict]:
     """Posición AGREGADA por ticker de una cartera copiada: cuántas acciones
     tienes hoy (compradas − vendidas) y su costo promedio (en MXN y USD)."""
@@ -700,6 +756,7 @@ def registrar_venta_copy(estrategia_id: int, ticker: str, fecha, titulos: int,
                          comision_mxn: float = 0.0) -> dict:
     """Vende N acciones de un ticker de la cartera copiada y registra la
     ganancia/pérdida realizada en ventas_cerradas (→ Rendimiento realizado)."""
+    _invalidar_cache()
     pos = {p["ticker"]: p for p in posiciones_copy(estrategia_id)}
     p = pos.get(ticker)
     if not p or p["titulos"] <= 0:
@@ -729,6 +786,7 @@ def registrar_venta_copy(estrategia_id: int, ticker: str, fecha, titulos: int,
 # ── Estrategias de FIBRAs ──────────────────────────────────────────────────────
 
 def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     existing = conn.execute(
@@ -753,6 +811,7 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
     registrar_guardado("FIBRAs", chequeo["version"], new_id)
     return int(new_id)
 
+@_cache_lectura
 def load_fibra_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -762,6 +821,7 @@ def load_fibra_strategies() -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_fibra_strategy(strategy_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM estrategias_fibras WHERE id = ? AND user_id = ?",
                  (strategy_id, usuario_efectivo()))
@@ -770,6 +830,7 @@ def delete_fibra_strategy(strategy_id: int):
     conn.close()
 
 def save_fibra_purchase(estrategia_id: int, fecha, titulos: int, precio: float, comision: float = 0.0):
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -779,6 +840,7 @@ def save_fibra_purchase(estrategia_id: int, fecha, titulos: int, precio: float, 
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_fibra_purchases(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -790,6 +852,7 @@ def load_fibra_purchases(estrategia_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_fibra_purchase(purchase_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM compras_fibras WHERE id = ?", (purchase_id,))
     conn.commit()
@@ -802,6 +865,7 @@ def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
                       niveles: list[dict] | None = None) -> int:
     """niveles: entrada escalonada [{precio, titulos}, ...] para la misma meta de
     salida. precio_entrada queda como la entrada principal (el primer nivel)."""
+    _invalidar_cache()
     init_db()
     from utils.pipeline import pipeline_guardado, registrar_guardado
     chequeo = pipeline_guardado("Por Objetivos", {
@@ -831,6 +895,7 @@ def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
     return int(new_id)
 
 
+@_cache_lectura
 def load_obj_niveles(estrategia_id: int) -> list[dict]:
     """Niveles de entrada escalonada de una estrategia. Lista vacía si es una
     estrategia vieja (de una sola entrada, sin cantidad planeada)."""
@@ -842,6 +907,7 @@ def load_obj_niveles(estrategia_id: int) -> list[dict]:
     conn.close()
     return [dict(r) for r in rows]
 
+@_cache_lectura
 def load_obj_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -851,6 +917,7 @@ def load_obj_strategies() -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_obj_strategy(strategy_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM estrategias_objetivos WHERE id = ? AND user_id = ?",
                  (strategy_id, usuario_efectivo()))
@@ -862,6 +929,7 @@ def delete_obj_strategy(strategy_id: int):
 
 def save_obj_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
                       tipo_cambio: float = 1.0, comision: float = 0.0):
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -871,6 +939,7 @@ def save_obj_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_obj_purchases(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -882,6 +951,7 @@ def load_obj_purchases(estrategia_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_obj_purchase(purchase_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM compras_objetivos WHERE id = ?", (purchase_id,))
     conn.execute("DELETE FROM ventas_objetivos WHERE compra_id = ?", (purchase_id,))
@@ -890,6 +960,7 @@ def delete_obj_purchase(purchase_id: int):
 
 def save_obj_sale(compra_id: int, estrategia_id: int, fecha, titulos: int, precio: float,
                   tipo_cambio: float = 1.0, comision: float = 0.0):
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -899,6 +970,7 @@ def save_obj_sale(compra_id: int, estrategia_id: int, fecha, titulos: int, preci
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_obj_sales(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -910,6 +982,7 @@ def load_obj_sales(estrategia_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_obj_sale(sale_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM ventas_objetivos WHERE id = ?", (sale_id,))
     conn.commit()
@@ -918,6 +991,7 @@ def delete_obj_sale(sale_id: int):
 # ── Estrategias de dividendos ──────────────────────────────────────────────────
 
 def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     # Evitar duplicados del mismo ticker
@@ -943,6 +1017,7 @@ def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
     registrar_guardado("Dividendos", chequeo["version"], new_id)
     return int(new_id)
 
+@_cache_lectura
 def load_div_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -954,6 +1029,7 @@ def load_div_strategies() -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_div_strategy(strategy_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM estrategias_dividendos WHERE id = ? AND user_id = ?",
                  (strategy_id, usuario_efectivo()))
@@ -963,6 +1039,7 @@ def delete_div_strategy(strategy_id: int):
 
 def save_div_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
                       tipo_cambio: float = 1.0, comision: float = 0.0):
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -972,6 +1049,7 @@ def save_div_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_div_purchases(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -983,6 +1061,7 @@ def load_div_purchases(estrategia_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_div_purchase(purchase_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM compras_dividendos WHERE id = ?", (purchase_id,))
     conn.commit()
@@ -990,6 +1069,7 @@ def delete_div_purchase(purchase_id: int):
 
 def save_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
                   tipo_cambio: float = 1.0, comision: float = 0.0):
+    _invalidar_cache()
     init_db()
     conn = _get_conn()
     conn.execute(
@@ -999,6 +1079,7 @@ def save_purchase(estrategia_id: int, fecha, titulos: int, precio: float,
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_purchases(estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -1010,12 +1091,14 @@ def load_purchases(estrategia_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_purchase(purchase_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM compras_dca WHERE id = ?", (purchase_id,))
     conn.commit()
     conn.close()
 
 def save_strategy(data: dict):
+    _invalidar_cache()
     init_db()
     # Pipeline de validación (pasos 1-4) antes de escribir; bloquea si hay errores.
     from utils.pipeline import pipeline_guardado, registrar_guardado
@@ -1047,12 +1130,14 @@ def save_strategy(data: dict):
 
 def set_cal_creado(strategy_id: int, valor: int = 1):
     """Marca (o desmarca) que los recordatorios de Calendar ya se crearon."""
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("UPDATE estrategias_dca SET cal_creado = ? WHERE id = ?",
                  (int(valor), strategy_id))
     conn.commit()
     conn.close()
 
+@_cache_lectura
 def load_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -1062,6 +1147,7 @@ def load_strategies() -> list[dict]:
     return [dict(r) for r in rows]
 
 def delete_strategy(strategy_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM compras_dca WHERE estrategia_id = ?", (strategy_id,))
     conn.execute("DELETE FROM estrategias_dca WHERE id = ? AND user_id = ?",
@@ -1080,6 +1166,7 @@ def _compras_de(modulo: str, estrategia_id: int) -> list:
     return f(estrategia_id) if f else []
 
 
+@_cache_lectura
 def titulos_vendidos(modulo: str, estrategia_id: int) -> int:
     init_db()
     conn = _get_conn()
@@ -1091,6 +1178,7 @@ def titulos_vendidos(modulo: str, estrategia_id: int) -> int:
     return int(row["s"] or 0)
 
 
+@_cache_lectura
 def titulos_disponibles(modulo: str, estrategia_id: int) -> int:
     comprados = sum(int(c["titulos"]) for c in _compras_de(modulo, estrategia_id))
     return comprados - titulos_vendidos(modulo, estrategia_id)
@@ -1103,6 +1191,7 @@ def registrar_venta(modulo: str, estrategia_id: int, ticker: str, fecha,
 
     Todos los importes en MXN (el precio de compra ya se guarda en pesos).
     """
+    _invalidar_cache()
     compras = _compras_de(modulo, estrategia_id)
     comprados = sum(int(c["titulos"]) for c in compras)
     if comprados <= 0:
@@ -1141,6 +1230,7 @@ def log_venta_cerrada(modulo: str, estrategia_id: int, ticker: str, fecha,
     Lo usa 'Por Objetivos', que maneja sus ventas por lote pero quiere que el
     rendimiento quede guardado aunque luego borre la estrategia.
     """
+    _invalidar_cache()
     ingreso = titulos * float(precio) - float(comision)
     ganancia = ingreso - float(costo_base)
     init_db()
@@ -1157,6 +1247,7 @@ def log_venta_cerrada(modulo: str, estrategia_id: int, ticker: str, fecha,
     conn.close()
 
 
+@_cache_lectura
 def load_ventas_cerradas(modulo: str, estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
@@ -1169,6 +1260,7 @@ def load_ventas_cerradas(modulo: str, estrategia_id: int) -> list[dict]:
 
 
 def delete_venta_cerrada(venta_id: int):
+    _invalidar_cache()
     conn = _get_conn()
     conn.execute("DELETE FROM ventas_cerradas WHERE id = ? AND user_id = ?",
                  (venta_id, usuario_efectivo()))
@@ -1176,6 +1268,7 @@ def delete_venta_cerrada(venta_id: int):
     conn.close()
 
 
+@_cache_lectura
 def load_historial_realizado() -> list[dict]:
     """Todas las ventas cerradas (con ganancia realizada), de todos los módulos."""
     init_db()
@@ -1210,6 +1303,7 @@ def _precios_conn():
 
 def guardar_precio(d: dict):
     """Guarda el último precio conocido de un ticker (compartido entre real y demo)."""
+    _invalidar_cache()
     try:
         conn = _precios_conn()
         conn.execute("""
