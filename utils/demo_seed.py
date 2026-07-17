@@ -7,22 +7,52 @@ from datetime import date, timedelta
 
 from utils import db_utils as db
 
-_TABLAS = [
-    "compras_dca", "estrategias_dca",
-    "compras_dividendos", "estrategias_dividendos",
-    "ventas_objetivos", "compras_objetivos", "estrategias_objetivos",
-    "compras_fibras", "estrategias_fibras",
-    "detalle_copy", "compras_copy", "estrategias_copy",
-    "ventas_cerradas", "historial_patrimonio", "logros",
-    "perfil",
+# Tablas hija → la estrategia de la que cuelgan (para borrarlas por su dueño)
+_HIJAS = {
+    "compras_dca": "estrategias_dca",
+    "compras_dividendos": "estrategias_dividendos",
+    "ventas_objetivos": "estrategias_objetivos",
+    "compras_objetivos": "estrategias_objetivos",
+    "niveles_objetivos": "estrategias_objetivos",
+    "compras_fibras": "estrategias_fibras",
+    "compras_copy": "estrategias_copy",
+}
+_RAICES = [
+    "estrategias_dca", "estrategias_dividendos", "estrategias_objetivos",
+    "estrategias_fibras", "estrategias_copy", "ventas_cerradas",
+    "perfiles", "patrimonio", "logros_usuario",
 ]
 
 
 def _wipe():
+    """Borra SOLO los datos del usuario de demostración.
+
+    OJO: antes borraba tablas completas, y eso funcionaba porque el demo vivía en
+    otro archivo. Ahora demo y real conviven en la misma base (separados por
+    dueño), así que un DELETE sin filtro borraría los datos REALES del usuario.
+    """
+    uid = db.usuario_efectivo()
     conn = db._get_conn()
-    for t in _TABLAS:
+    # 1) Lo más profundo primero: el detalle cuelga de la compra, no de la estrategia.
+    try:
+        conn.execute(
+            "DELETE FROM detalle_copy WHERE compra_id IN ("
+            "  SELECT id FROM compras_copy WHERE estrategia_id IN ("
+            "    SELECT id FROM estrategias_copy WHERE user_id = ?))", (uid,))
+    except Exception:
+        pass
+    # 2) Las hijas, a través de su estrategia.
+    for hija, padre in _HIJAS.items():
         try:
-            conn.execute(f"DELETE FROM {t}")
+            conn.execute(
+                f"DELETE FROM {hija} WHERE estrategia_id IN "
+                f"(SELECT id FROM {padre} WHERE user_id = ?)", (uid,))
+        except Exception:
+            pass
+    # 3) Y al final las raíces.
+    for t in _RAICES:
+        try:
+            conn.execute(f"DELETE FROM {t} WHERE user_id = ?", (uid,))
         except Exception:
             pass
     conn.commit()

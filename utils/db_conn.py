@@ -110,29 +110,45 @@ class _CursorCompat:
 class _ConnCompat:
     """Conexión de Postgres que acepta el SQL estilo SQLite de la app.
 
-    Traduce la sentencia y, en los INSERT, agrega RETURNING id para poder
-    ofrecer `lastrowid` (que en Postgres no existe)."""
+    Hace dos traducciones importantes:
 
-    def __init__(self, conn):
+    1. En los INSERT agrega RETURNING id, para poder ofrecer `lastrowid`
+       (que en Postgres no existe).
+    2. Trabaja en modo autocommit (ver el pool). Esto resuelve dos cosas de un
+       golpe: la app usa el patrón `try: ALTER TABLE ... except: pass` (para
+       cuando la columna ya existe), que en SQLite es inofensivo pero en Postgres
+       ABORTA la transacción y tumba todo lo que siga; y además evita los viajes
+       de red extra de abrir/cerrar transacción en cada lectura.
+
+    Compromiso conocido: sin transacción explícita, una operación de varias
+    sentencias (ej. guardar una estrategia y sus niveles) no es atómica. Se
+    aceptó a cambio de la velocidad; si más adelante hace falta, se envuelven
+    esos casos puntuales en una transacción propia.
+    """
+
+    def __init__(self, conn, pool=None):
         self._conn = conn
+        self._pool = pool      # si viene de un pool, al cerrar se devuelve ahí
+        self._n = 0
+        self._cerrada = False
 
     def execute(self, sql: str, params=()):
         sql_pg = traducir(sql)
         es_insert = sql_pg.lstrip().upper().startswith("INSERT")
         devuelve_id = es_insert and "RETURNING" not in sql_pg.upper()
-        if devuelve_id:
-            sql_pg = sql_pg.rstrip().rstrip(";") + " RETURNING id"
         cur = self._conn.cursor()
-        try:
-            cur.execute(sql_pg, tuple(params))
-        except Exception:
-            if devuelve_id:
-                # La tabla no tiene columna id (ej. perfil con id fijo): reintenta sin RETURNING.
-                self._conn.rollback()
+        if devuelve_id:
+            try:
+                cur.execute(sql_pg.rstrip().rstrip(";") + " RETURNING id", tuple(params))
+            except Exception:
+                # La tabla no tiene columna id (ej. perfiles, cuya llave es el
+                # usuario): se reintenta sin RETURNING. Con autocommit, el error
+                # anterior no dejó la transacción envenenada.
+                devuelve_id = False
                 cur = self._conn.cursor()
-                cur.execute(traducir(sql), tuple(params))
-            else:
-                raise
+                cur.execute(sql_pg, tuple(params))
+        else:
+            cur.execute(sql_pg, tuple(params))
         envoltorio = _CursorCompat(cur)
         if devuelve_id:
             try:
@@ -150,7 +166,47 @@ class _ConnCompat:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        """No cierra de verdad: devuelve la conexión al pool para reutilizarla."""
+        if self._cerrada:
+            return
+        self._cerrada = True
+        if self._pool is not None:
+            self._pool.putconn(self._conn)   # el pool la limpia (rollback) solo
+        else:
+            self._conn.close()
+
+
+# ── Pool de conexiones ───────────────────────────────────────────────────────
+# La app abre y cierra una conexión por consulta. Con SQLite (un archivo local)
+# eso es gratis; contra Postgres cada apertura es un saludo TLS por internet:
+# medimos ~1.7 s POR CONSULTA, o sea 85-170 s para pintar una sola pantalla.
+# El pool mantiene unas pocas conexiones vivas y las presta, así el costo se
+# paga una vez y cada consulta vuelve a ser de milisegundos.
+_POOL = None
+
+
+def _pool():
+    global _POOL
+    if _POOL is None:
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+        _POOL = ConnectionPool(
+            postgres_url(), min_size=1, max_size=5,      # Supabase free: 60 máx
+            # autocommit: cada sentencia se confirma sola. Evita el viaje extra
+            # de cerrar transacción en cada lectura y hace que un ALTER que falla
+            # (columna ya existente) no tumbe lo que sigue.
+            kwargs={"row_factory": dict_row, "autocommit": True},
+            timeout=30, open=True,
+        )
+    return _POOL
+
+
+def cerrar_pool():
+    """Cierra el pool (para pruebas o al apagar la app)."""
+    global _POOL
+    if _POOL is not None:
+        _POOL.close()
+        _POOL = None
 
 
 def get_conn(modo: str = "real"):
@@ -159,13 +215,11 @@ def get_conn(modo: str = "real"):
     Las filas se leen como diccionarios en ambos motores, así que `fila["campo"]`
     funciona igual (es como ya lo usa toda la app).
     """
-    url = postgres_url()
-    if url:
-        import psycopg
-        from psycopg.rows import dict_row
-        return _ConnCompat(psycopg.connect(url, row_factory=dict_row))
-    p = DB_DIR / DB_FILES.get(modo, DB_FILES["real"])
-    p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p))
+    if usando_postgres():
+        p = _pool()
+        return _ConnCompat(p.getconn(), p)
+    ruta = DB_DIR / DB_FILES.get(modo, DB_FILES["real"])
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(ruta))
     conn.row_factory = sqlite3.Row
     return conn

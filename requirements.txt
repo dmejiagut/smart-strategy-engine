@@ -18,3 +18,4 @@ openpyxl>=3.1.0
 reportlab>=4.0.0
 # Postgres (Supabase) — multiusuario. Si no hay DATABASE_URL, la app usa SQLite.
 psycopg[binary]>=3.2.0
+psycopg_pool>=3.2.0

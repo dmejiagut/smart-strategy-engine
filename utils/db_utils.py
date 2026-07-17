@@ -2,14 +2,27 @@ import sqlite3
 from datetime import datetime, date
 from pathlib import Path
 
+from utils.db_conn import get_conn as _conn_nueva, motor
+
 DB_DIR = Path(__file__).parent.parent / "db"
 DB_FILES = {"real": "sse.db", "demo": "sse_demo.db"}
 PRECIOS_DB = DB_DIR / "precios.db"  # caché de precios de mercado (público, no es dato del usuario)
-_MODO = "real"  # 'real' o 'demo'
+_MODO = "real"          # 'real' o 'demo'
+_USUARIO = "local"      # quién está usando la app (hasta que exista el login)
+
+# Tablas "raíz": las que tienen dueño. Sus hijas (compras_*, detalle_copy…) se
+# protegen a través de su estrategia, porque sus ids SIEMPRE salen de una lectura
+# ya filtrada por usuario.
+TABLAS_CON_DUENO = [
+    "estrategias_dca", "estrategias_dividendos", "estrategias_objetivos",
+    "estrategias_fibras", "estrategias_copy", "ventas_cerradas",
+]
+# Aparte van 'perfiles', 'patrimonio' y 'logros_usuario': ahí el usuario forma
+# parte de la llave primaria, así que se crean ya listas (ver init_db).
 
 
 def set_modo(modo: str):
-    """Cambia entre la base real y la de demostración (datos sintéticos)."""
+    """Cambia entre los datos reales y los de demostración (sintéticos)."""
     global _MODO
     _MODO = modo if modo in DB_FILES else "real"
 
@@ -18,18 +31,72 @@ def get_modo() -> str:
     return _MODO
 
 
+def set_usuario(uid: str):
+    """Define de quién son los datos (lo llamará el login)."""
+    global _USUARIO
+    _USUARIO = str(uid or "local")
+
+
+def get_usuario() -> str:
+    return _USUARIO
+
+
+def usuario_efectivo() -> str:
+    """El dueño de los datos que se leen/escriben AHORA.
+
+    Une login + modo en un solo concepto: en demostración se usa un usuario
+    aparte ("…::demo"), así los datos sintéticos son simplemente las filas de
+    otro dueño. Esto funciona igual en SQLite y en Postgres (donde hay UNA sola
+    base y ya no se pueden separar por archivo).
+    """
+    return f"{_USUARIO}::demo" if _MODO == "demo" else _USUARIO
+
+
 def _db_path() -> Path:
-    return DB_DIR / DB_FILES[_MODO]
+    return DB_DIR / DB_FILES["real"]
 
 
 def _get_conn():
-    p = _db_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p))
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Postgres si hay DATABASE_URL configurada; si no, SQLite (una sola base:
+    # real y demo ya se distinguen por usuario, no por archivo).
+    return _conn_nueva("real")
 
-def init_db():
+
+def _migrar_dueno(conn):
+    """Agrega user_id a las tablas con dueño y adopta los datos que ya existían.
+
+    Las filas creadas antes del multiusuario no tienen dueño: se le asignan al
+    usuario 'local' para que nadie pierda su información al actualizar.
+    """
+    for t in TABLAS_CON_DUENO:
+        try:
+            conn.execute(f"ALTER TABLE {t} ADD COLUMN user_id TEXT")
+        except Exception:
+            pass  # la columna ya existe
+        try:
+            conn.execute(f"UPDATE {t} SET user_id = 'local' WHERE user_id IS NULL")
+        except Exception:
+            pass
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_user ON {t} (user_id)")
+        except Exception:
+            pass
+
+_ESQUEMA_LISTO = False
+
+
+def init_db(forzar: bool = False):
+    """Crea/actualiza el esquema. Corre UNA sola vez por proceso.
+
+    Ojo con el guardia: init_db() se invoca al inicio de casi todas las funciones
+    (37 lugares) y crea/altera ~31 tablas. Contra un archivo SQLite eso era
+    instantáneo, pero contra Postgres por internet significaba 31 viajes de red
+    —con locks exclusivos— en CADA lectura: la app se arrastraba y llegaba a
+    bloquearse. Con esto, el esquema se asegura una vez y ya.
+    """
+    global _ESQUEMA_LISTO
+    if _ESQUEMA_LISTO and not forzar:
+        return
     conn = _get_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS estrategias_dca (
@@ -228,6 +295,9 @@ def init_db():
     except Exception:
         pass  # columna ya existe
     # ── Perfil del usuario ──
+    # La tabla vieja 'perfil' nació con CHECK (id = 1): una sola fila, un solo
+    # usuario. Para multiusuario se usa 'perfiles', donde la llave ES el usuario.
+    # (La vieja se conserva un tiempo y sus datos se adoptan en _migrar_perfiles.)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS perfil (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -237,6 +307,22 @@ def init_db():
             objetivo TEXT,
             perfil_riesgo TEXT,
             horizonte_anios INTEGER,
+            actualizado TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS perfiles (
+            user_id TEXT PRIMARY KEY,
+            nombre TEXT,
+            edad INTEGER,
+            ingreso_mensual REAL,
+            objetivo TEXT,
+            perfil_riesgo TEXT,
+            horizonte_anios INTEGER,
+            comision_pct REAL DEFAULT 0.25,
+            meta_anual REAL DEFAULT 20,
+            meta_monto REAL DEFAULT 0,
+            casa_bolsa TEXT,
             actualizado TEXT DEFAULT (datetime('now'))
         )
     """)
@@ -274,45 +360,125 @@ def init_db():
             fecha TEXT DEFAULT (datetime('now'))
         )
     """)
+    # Las dos tablas de arriba nacieron para UN usuario: su llave primaria era
+    # solo la fecha / la clave, así que dos personas no podrían tener el mismo
+    # día ni el mismo logro. Estas las reemplazan, con el usuario en la llave.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS patrimonio (
+            user_id TEXT NOT NULL,
+            fecha TEXT NOT NULL,             -- un snapshot por día y por usuario
+            invertido REAL NOT NULL,
+            valor REAL NOT NULL,
+            creado_en TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, fecha)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS logros_usuario (
+            user_id TEXT NOT NULL,
+            clave TEXT NOT NULL,
+            fecha TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, clave)
+        )
+    """)
+    _migrar_dueno(conn)
+    _adoptar_datos_viejos(conn)
     conn.commit()
     conn.close()
+    _ESQUEMA_LISTO = True
+
+
+def _adoptar_datos_viejos(conn):
+    """Pasa los datos de las tablas de un solo usuario a las nuevas, como del
+    usuario 'local'. Así quien ya usaba la app no pierde nada al actualizar.
+    Solo copia lo que aún no exista (es seguro correrlo muchas veces)."""
+    try:
+        conn.execute("""
+            INSERT INTO perfiles (user_id, nombre, edad, ingreso_mensual, objetivo,
+                                  perfil_riesgo, horizonte_anios)
+            SELECT 'local', nombre, edad, ingreso_mensual, objetivo,
+                   perfil_riesgo, horizonte_anios
+            FROM perfil WHERE id = 1
+              AND NOT EXISTS (SELECT 1 FROM perfiles WHERE user_id = 'local')
+        """)
+    except Exception:
+        pass
+    # Las columnas extra del perfil viejo (se agregaron con ALTER, pueden no estar)
+    for col in ("comision_pct", "meta_anual", "meta_monto", "casa_bolsa"):
+        try:
+            conn.execute(f"""
+                UPDATE perfiles SET {col} = (SELECT {col} FROM perfil WHERE id = 1)
+                WHERE user_id = 'local'
+                  AND (SELECT {col} FROM perfil WHERE id = 1) IS NOT NULL
+            """)
+        except Exception:
+            pass
+    try:
+        conn.execute("""
+            INSERT INTO patrimonio (user_id, fecha, invertido, valor)
+            SELECT 'local', fecha, invertido, valor FROM historial_patrimonio
+            WHERE fecha NOT IN (SELECT fecha FROM patrimonio WHERE user_id = 'local')
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            INSERT INTO logros_usuario (user_id, clave, fecha)
+            SELECT 'local', clave, fecha FROM logros
+            WHERE clave NOT IN (SELECT clave FROM logros_usuario WHERE user_id = 'local')
+        """)
+    except Exception:
+        pass
 
 # ── Perfil del usuario ─────────────────────────────────────────────────────────
 
 def get_perfil() -> dict:
     init_db()
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM perfil WHERE id = 1").fetchone()
+    row = conn.execute("SELECT * FROM perfiles WHERE user_id = ?",
+                       (usuario_efectivo(),)).fetchone()
     conn.close()
     return dict(row) if row else {}
 
-def set_comision_pct(pct: float):
-    """Guarda el % de comisión de la casa de bolsa en el perfil (aplica de aquí en adelante)."""
+
+def _set_campo_perfil(campo: str, valor):
+    """Guarda UN campo del perfil del usuario actual (crea su fila si no existe)."""
     init_db()
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO perfil (id, comision_pct) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET comision_pct = ?", (float(pct), float(pct)))
+        f"INSERT INTO perfiles (user_id, {campo}) VALUES (?, ?) "
+        f"ON CONFLICT(user_id) DO UPDATE SET {campo} = ?",
+        (usuario_efectivo(), valor, valor))
     conn.commit()
     conn.close()
+
+
+def set_comision_pct(pct: float):
+    """Guarda el % de comisión de la casa de bolsa en el perfil (aplica de aquí en adelante)."""
+    _set_campo_perfil("comision_pct", float(pct))
 
 
 def set_meta_anual(pct: float):
     """Guarda la meta anual de rendimiento (%) del usuario."""
-    init_db()
-    conn = _get_conn()
-    conn.execute(
-        "INSERT INTO perfil (id, meta_anual) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET meta_anual = ?", (float(pct), float(pct)))
-    conn.commit()
-    conn.close()
+    _set_campo_perfil("meta_anual", float(pct))
+
+
+def set_casa_bolsa(nombre: str):
+    """Guarda la casa de bolsa (broker) que usa el usuario."""
+    _set_campo_perfil("casa_bolsa", nombre)
+
+
+def set_meta_monto(monto: float):
+    """Guarda la meta anual de inversión (monto en MXN que el usuario busca invertir en el año)."""
+    _set_campo_perfil("meta_monto", float(monto))
 
 
 def load_logros() -> dict:
-    """{clave: fecha} de los logros ya desbloqueados."""
+    """{clave: fecha} de los logros ya desbloqueados por el usuario actual."""
     init_db()
     conn = _get_conn()
-    rows = conn.execute("SELECT clave, fecha FROM logros").fetchall()
+    rows = conn.execute("SELECT clave, fecha FROM logros_usuario WHERE user_id = ?",
+                        (usuario_efectivo(),)).fetchall()
     conn.close()
     return {r["clave"]: r["fecha"] for r in rows}
 
@@ -321,29 +487,9 @@ def guardar_logro(clave: str):
     """Marca un logro como desbloqueado (idempotente: no duplica ni actualiza)."""
     init_db()
     conn = _get_conn()
-    conn.execute("INSERT OR IGNORE INTO logros (clave) VALUES (?)", (clave,))
-    conn.commit()
-    conn.close()
-
-
-def set_casa_bolsa(nombre: str):
-    """Guarda la casa de bolsa (broker) que usa el usuario."""
-    init_db()
-    conn = _get_conn()
     conn.execute(
-        "INSERT INTO perfil (id, casa_bolsa) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET casa_bolsa = ?", (nombre, nombre))
-    conn.commit()
-    conn.close()
-
-
-def set_meta_monto(monto: float):
-    """Guarda la meta anual de inversión (monto en MXN que el usuario busca invertir en el año)."""
-    init_db()
-    conn = _get_conn()
-    conn.execute(
-        "INSERT INTO perfil (id, meta_monto) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET meta_monto = ?", (float(monto), float(monto)))
+        "INSERT INTO logros_usuario (user_id, clave) VALUES (?, ?) "
+        "ON CONFLICT(user_id, clave) DO NOTHING", (usuario_efectivo(), clave))
     conn.commit()
     conn.close()
 
@@ -351,45 +497,46 @@ def set_meta_monto(monto: float):
 # ── Histórico diario del patrimonio ────────────────────────────────────────────
 
 def guardar_snapshot_patrimonio(invertido: float, valor: float):
-    """Guarda (o actualiza) el valor del portafolio de HOY. Una fila por día,
-    así que llamarla muchas veces al día no genera basura ni pesa."""
+    """Guarda (o actualiza) el valor del portafolio de HOY. Una fila por día y
+    por usuario, así que llamarla muchas veces al día no genera basura ni pesa."""
     init_db()
     conn = _get_conn()
     hoy = date.today().isoformat()
     conn.execute(
-        "INSERT INTO historial_patrimonio (fecha, invertido, valor) VALUES (?, ?, ?) "
-        "ON CONFLICT(fecha) DO UPDATE SET invertido = excluded.invertido, "
-        "valor = excluded.valor", (hoy, float(invertido), float(valor)))
+        "INSERT INTO patrimonio (user_id, fecha, invertido, valor) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, fecha) DO UPDATE SET invertido = excluded.invertido, "
+        "valor = excluded.valor", (usuario_efectivo(), hoy, float(invertido), float(valor)))
     conn.commit()
     conn.close()
 
 
 def leer_historial_patrimonio() -> list[dict]:
-    """Devuelve el histórico diario ordenado por fecha (ascendente)."""
+    """Histórico diario del usuario actual, ordenado por fecha (ascendente)."""
     init_db()
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT fecha, invertido, valor FROM historial_patrimonio ORDER BY fecha ASC"
-    ).fetchall()
+        "SELECT fecha, invertido, valor FROM patrimonio WHERE user_id = ? "
+        "ORDER BY fecha ASC", (usuario_efectivo(),)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def save_perfil(data: dict):
+    """Guarda los datos personales del usuario actual.
+    Placeholders posicionales (?) a propósito: los de nombre (:campo) solo
+    existen en SQLite y romperían en Postgres."""
     init_db()
     conn = _get_conn()
+    vals = (data.get("nombre"), data.get("edad"), data.get("ingreso_mensual"),
+            data.get("objetivo"), data.get("perfil_riesgo"), data.get("horizonte_anios"))
     conn.execute("""
-        INSERT INTO perfil (id, nombre, edad, ingreso_mensual, objetivo, perfil_riesgo, horizonte_anios, actualizado)
-        VALUES (1, :nombre, :edad, :ingreso_mensual, :objetivo, :perfil_riesgo, :horizonte_anios, datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET
-            nombre=:nombre, edad=:edad, ingreso_mensual=:ingreso_mensual,
-            objetivo=:objetivo, perfil_riesgo=:perfil_riesgo,
-            horizonte_anios=:horizonte_anios, actualizado=datetime('now')
-    """, {
-        "nombre": data.get("nombre"), "edad": data.get("edad"),
-        "ingreso_mensual": data.get("ingreso_mensual"), "objetivo": data.get("objetivo"),
-        "perfil_riesgo": data.get("perfil_riesgo"), "horizonte_anios": data.get("horizonte_anios"),
-    })
+        INSERT INTO perfiles (user_id, nombre, edad, ingreso_mensual, objetivo,
+                              perfil_riesgo, horizonte_anios, actualizado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+            nombre = ?, edad = ?, ingreso_mensual = ?, objetivo = ?,
+            perfil_riesgo = ?, horizonte_anios = ?, actualizado = datetime('now')
+    """, (usuario_efectivo(),) + vals + vals)
     conn.commit()
     conn.close()
 
@@ -403,7 +550,8 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
         reporte_base = TRIMESTRE_ACTUAL
     conn = _get_conn()
     existing = conn.execute(
-        "SELECT id FROM estrategias_copy WHERE investor_id = ?", (investor_id,)
+        "SELECT id FROM estrategias_copy WHERE investor_id = ? AND user_id = ?",
+        (investor_id, usuario_efectivo())
     ).fetchone()
     if existing:
         conn.close()
@@ -414,8 +562,9 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
         conn.close()
         raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
-        "INSERT INTO estrategias_copy (investor_id, nombre, fondo, reporte_base) VALUES (?, ?, ?, ?)",
-        (investor_id, nombre, fondo, reporte_base),
+        "INSERT INTO estrategias_copy (investor_id, nombre, fondo, reporte_base, user_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (investor_id, nombre, fondo, reporte_base, usuario_efectivo()),
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -426,7 +575,8 @@ def save_copy_strategy(investor_id: str, nombre: str = "", fondo: str = "",
 def load_copy_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM estrategias_copy ORDER BY creado_en DESC").fetchall()
+    rows = conn.execute("SELECT * FROM estrategias_copy WHERE user_id = ? "
+                        "ORDER BY creado_en DESC", (usuario_efectivo(),)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -436,7 +586,8 @@ def delete_copy_strategy(strategy_id: int):
     for c in compras:
         conn.execute("DELETE FROM detalle_copy WHERE compra_id = ?", (c["id"],))
     conn.execute("DELETE FROM compras_copy WHERE estrategia_id = ?", (strategy_id,))
-    conn.execute("DELETE FROM estrategias_copy WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM estrategias_copy WHERE id = ? AND user_id = ?",
+                 (strategy_id, usuario_efectivo()))
     conn.commit()
     conn.close()
 
@@ -510,8 +661,8 @@ def titulos_vendidos_copy(estrategia_id: int, ticker: str) -> int:
     conn = _get_conn()
     row = conn.execute(
         "SELECT COALESCE(SUM(titulos),0) AS s FROM ventas_cerradas "
-        "WHERE modulo='Copy Trading' AND estrategia_id=? AND ticker=?",
-        (estrategia_id, ticker)).fetchone()
+        "WHERE modulo='Copy Trading' AND estrategia_id=? AND ticker=? AND user_id=?",
+        (estrategia_id, ticker, usuario_efectivo())).fetchone()
     conn.close()
     return int(row["s"] or 0)
 
@@ -567,10 +718,10 @@ def registrar_venta_copy(estrategia_id: int, ticker: str, fecha, titulos: int,
     conn.execute("""
         INSERT INTO ventas_cerradas
             (modulo, estrategia_id, ticker, fecha, titulos, precio, tipo_cambio,
-             comision, costo_base, ingreso, ganancia)
-        VALUES ('Copy Trading', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             comision, costo_base, ingreso, ganancia, user_id)
+        VALUES ('Copy Trading', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (estrategia_id, ticker, str(fecha), titulos, precio_mxn, float(tipo_cambio),
-          float(comision_mxn), costo_base, ingreso, ganancia))
+          float(comision_mxn), costo_base, ingreso, ganancia, usuario_efectivo()))
     conn.commit()
     conn.close()
     return {"ok": True, "ganancia": ganancia, "costo_base": costo_base, "ingreso": ingreso}
@@ -581,7 +732,8 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
     init_db()
     conn = _get_conn()
     existing = conn.execute(
-        "SELECT id FROM estrategias_fibras WHERE ticker = ?", (ticker,)
+        "SELECT id FROM estrategias_fibras WHERE ticker = ? AND user_id = ?",
+        (ticker, usuario_efectivo())
     ).fetchone()
     if existing:
         conn.close()
@@ -592,8 +744,8 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
         conn.close()
         raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
-        "INSERT INTO estrategias_fibras (ticker, nombre, sector) VALUES (?, ?, ?)",
-        (ticker, nombre, sector),
+        "INSERT INTO estrategias_fibras (ticker, nombre, sector, user_id) VALUES (?, ?, ?, ?)",
+        (ticker, nombre, sector, usuario_efectivo()),
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -604,13 +756,15 @@ def save_fibra_strategy(ticker: str, nombre: str = "", sector: str = "") -> int:
 def load_fibra_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM estrategias_fibras ORDER BY creado_en DESC").fetchall()
+    rows = conn.execute("SELECT * FROM estrategias_fibras WHERE user_id = ? "
+                        "ORDER BY creado_en DESC", (usuario_efectivo(),)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 def delete_fibra_strategy(strategy_id: int):
     conn = _get_conn()
-    conn.execute("DELETE FROM estrategias_fibras WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM estrategias_fibras WHERE id = ? AND user_id = ?",
+                 (strategy_id, usuario_efectivo()))
     conn.execute("DELETE FROM compras_fibras WHERE estrategia_id = ?", (strategy_id,))
     conn.commit()
     conn.close()
@@ -657,9 +811,10 @@ def save_obj_strategy(ticker: str, nombre: str, precio_entrada: float,
     conn = _get_conn()
     cur = conn.execute(
         """INSERT INTO estrategias_objetivos
-           (ticker, nombre, precio_entrada, precio_salida, tipo_cambio)
-           VALUES (?, ?, ?, ?, ?)""",
-        (ticker, nombre, float(precio_entrada), float(precio_salida), float(tipo_cambio)),
+           (ticker, nombre, precio_entrada, precio_salida, tipo_cambio, user_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (ticker, nombre, float(precio_entrada), float(precio_salida), float(tipo_cambio),
+         usuario_efectivo()),
     )
     new_id = cur.lastrowid
     for i, n in enumerate(niveles or []):
@@ -690,13 +845,15 @@ def load_obj_niveles(estrategia_id: int) -> list[dict]:
 def load_obj_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM estrategias_objetivos ORDER BY creado_en DESC").fetchall()
+    rows = conn.execute("SELECT * FROM estrategias_objetivos WHERE user_id = ? "
+                        "ORDER BY creado_en DESC", (usuario_efectivo(),)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 def delete_obj_strategy(strategy_id: int):
     conn = _get_conn()
-    conn.execute("DELETE FROM estrategias_objetivos WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM estrategias_objetivos WHERE id = ? AND user_id = ?",
+                 (strategy_id, usuario_efectivo()))
     conn.execute("DELETE FROM niveles_objetivos WHERE estrategia_id = ?", (strategy_id,))
     conn.execute("DELETE FROM compras_objetivos WHERE estrategia_id = ?", (strategy_id,))
     conn.execute("DELETE FROM ventas_objetivos WHERE estrategia_id = ?", (strategy_id,))
@@ -765,7 +922,8 @@ def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
     conn = _get_conn()
     # Evitar duplicados del mismo ticker
     existing = conn.execute(
-        "SELECT id FROM estrategias_dividendos WHERE ticker = ?", (ticker,)
+        "SELECT id FROM estrategias_dividendos WHERE ticker = ? AND user_id = ?",
+        (ticker, usuario_efectivo())
     ).fetchone()
     if existing:
         conn.close()
@@ -776,8 +934,8 @@ def save_div_strategy(ticker: str, nombre: str = "", giro: str = "") -> int:
         conn.close()
         raise ValueError("La estrategia no pasó las validaciones: " + "; ".join(chequeo["errores"]))
     cur = conn.execute(
-        "INSERT INTO estrategias_dividendos (ticker, nombre, giro) VALUES (?, ?, ?)",
-        (ticker, nombre, giro),
+        "INSERT INTO estrategias_dividendos (ticker, nombre, giro, user_id) VALUES (?, ?, ?, ?)",
+        (ticker, nombre, giro, usuario_efectivo()),
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -789,14 +947,16 @@ def load_div_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM estrategias_dividendos ORDER BY creado_en DESC"
+        "SELECT * FROM estrategias_dividendos WHERE user_id = ? ORDER BY creado_en DESC",
+        (usuario_efectivo(),)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 def delete_div_strategy(strategy_id: int):
     conn = _get_conn()
-    conn.execute("DELETE FROM estrategias_dividendos WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM estrategias_dividendos WHERE id = ? AND user_id = ?",
+                 (strategy_id, usuario_efectivo()))
     conn.execute("DELETE FROM compras_dividendos WHERE estrategia_id = ?", (strategy_id,))
     conn.commit()
     conn.close()
@@ -868,14 +1028,16 @@ def save_strategy(data: dict):
     cur = conn.execute("""
         INSERT INTO estrategias_dca
             (ticker, frecuencia, titulos, fecha_inicio, fecha_fin, n_fechas,
-             tipo_cambio, comision_pct, cal_activado, cal_hora, cal_anticip, cal_creado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             tipo_cambio, comision_pct, cal_activado, cal_hora, cal_anticip, cal_creado,
+             user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get("ticker"), data.get("frecuencia"), data.get("titulos"),
         str(data.get("fecha_inicio")), str(data.get("fecha_fin")), len(fechas),
         data.get("tipo_cambio"), data.get("comision_pct"),
         cal_on, data.get("cal_hora"), data.get("cal_anticip"),
         cal_on,  # si se activó al crear, los eventos ya se crearon
+        usuario_efectivo(),
     ))
     new_id = cur.lastrowid
     conn.commit()
@@ -894,14 +1056,16 @@ def set_cal_creado(strategy_id: int, valor: int = 1):
 def load_strategies() -> list[dict]:
     init_db()
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM estrategias_dca ORDER BY creado_en DESC").fetchall()
+    rows = conn.execute("SELECT * FROM estrategias_dca WHERE user_id = ? "
+                        "ORDER BY creado_en DESC", (usuario_efectivo(),)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 def delete_strategy(strategy_id: int):
     conn = _get_conn()
     conn.execute("DELETE FROM compras_dca WHERE estrategia_id = ?", (strategy_id,))
-    conn.execute("DELETE FROM estrategias_dca WHERE id = ?", (strategy_id,))
+    conn.execute("DELETE FROM estrategias_dca WHERE id = ? AND user_id = ?",
+                 (strategy_id, usuario_efectivo()))
     # OJO: NO borramos ventas_cerradas — el historial de rendimiento es permanente,
     # para poder revisarlo aunque la estrategia ya no exista.
     conn.commit()
@@ -920,8 +1084,9 @@ def titulos_vendidos(modulo: str, estrategia_id: int) -> int:
     init_db()
     conn = _get_conn()
     row = conn.execute(
-        "SELECT COALESCE(SUM(titulos),0) AS s FROM ventas_cerradas WHERE modulo=? AND estrategia_id=?",
-        (modulo, estrategia_id)).fetchone()
+        "SELECT COALESCE(SUM(titulos),0) AS s FROM ventas_cerradas "
+        "WHERE modulo=? AND estrategia_id=? AND user_id=?",
+        (modulo, estrategia_id, usuario_efectivo())).fetchone()
     conn.close()
     return int(row["s"] or 0)
 
@@ -958,10 +1123,11 @@ def registrar_venta(modulo: str, estrategia_id: int, ticker: str, fecha,
     conn.execute("""
         INSERT INTO ventas_cerradas
             (modulo, estrategia_id, ticker, fecha, titulos, precio, tipo_cambio,
-             comision, costo_base, ingreso, ganancia)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             comision, costo_base, ingreso, ganancia, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (modulo, estrategia_id, ticker, str(fecha), titulos, float(precio),
-          float(tipo_cambio), float(comision), costo_base, ingreso, ganancia))
+          float(tipo_cambio), float(comision), costo_base, ingreso, ganancia,
+          usuario_efectivo()))
     conn.commit()
     conn.close()
     return {"ok": True, "ganancia": ganancia, "costo_base": costo_base, "ingreso": ingreso}
@@ -982,10 +1148,11 @@ def log_venta_cerrada(modulo: str, estrategia_id: int, ticker: str, fecha,
     conn.execute("""
         INSERT INTO ventas_cerradas
             (modulo, estrategia_id, ticker, fecha, titulos, precio, tipo_cambio,
-             comision, costo_base, ingreso, ganancia)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             comision, costo_base, ingreso, ganancia, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (modulo, estrategia_id, ticker, str(fecha), int(titulos), float(precio),
-          float(tipo_cambio), float(comision), float(costo_base), ingreso, ganancia))
+          float(tipo_cambio), float(comision), float(costo_base), ingreso, ganancia,
+          usuario_efectivo()))
     conn.commit()
     conn.close()
 
@@ -994,15 +1161,17 @@ def load_ventas_cerradas(modulo: str, estrategia_id: int) -> list[dict]:
     init_db()
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM ventas_cerradas WHERE modulo=? AND estrategia_id=? ORDER BY fecha DESC, id DESC",
-        (modulo, estrategia_id)).fetchall()
+        "SELECT * FROM ventas_cerradas WHERE modulo=? AND estrategia_id=? AND user_id=? "
+        "ORDER BY fecha DESC, id DESC",
+        (modulo, estrategia_id, usuario_efectivo())).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def delete_venta_cerrada(venta_id: int):
     conn = _get_conn()
-    conn.execute("DELETE FROM ventas_cerradas WHERE id = ?", (venta_id,))
+    conn.execute("DELETE FROM ventas_cerradas WHERE id = ? AND user_id = ?",
+                 (venta_id, usuario_efectivo()))
     conn.commit()
     conn.close()
 
@@ -1012,7 +1181,8 @@ def load_historial_realizado() -> list[dict]:
     init_db()
     conn = _get_conn()
     filas = []
-    for r in conn.execute("SELECT * FROM ventas_cerradas ORDER BY fecha DESC, id DESC").fetchall():
+    for r in conn.execute("SELECT * FROM ventas_cerradas WHERE user_id = ? "
+                          "ORDER BY fecha DESC, id DESC", (usuario_efectivo(),)).fetchall():
         d = dict(r)
         filas.append({"modulo": d["modulo"], "ticker": d["ticker"], "fecha": d["fecha"],
                       "titulos": d["titulos"], "precio": d["precio"],
