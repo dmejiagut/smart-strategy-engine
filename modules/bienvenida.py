@@ -7,7 +7,7 @@ vuelve a preguntar (y se puede editar luego desde "Mi perfil financiero").
 from pathlib import Path
 
 import streamlit as st
-from utils import db_utils, auth_utils
+from utils import db_utils, auth_utils, auth_supabase
 
 # Logo oficial (arte del usuario). Si no existe, se usa el SVG de respaldo.
 _LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "vestplan_logo.png"
@@ -49,6 +49,17 @@ def _idx(opciones, valor):
         return 0
 
 
+def aplicar_usuario_de_sesion():
+    """Le dice a la capa de datos de quién son los datos de ESTA sesión.
+
+    Hay que llamarla al inicio de CADA ejecución del script: db_utils guarda al
+    usuario en una variable del proceso, que es compartida por todas las sesiones.
+    Sin esto, dos personas conectadas a la vez se pisarían los datos.
+    """
+    uid = st.session_state.get("usuario_id")
+    db_utils.set_usuario(uid if uid else "local")
+
+
 def necesita_bienvenida() -> bool:
     """True si hay que mostrar la pantalla de bienvenida antes del dashboard."""
     if st.session_state.get("_entro"):
@@ -56,7 +67,11 @@ def necesita_bienvenida() -> bool:
     # Si el usuario cerró sesión, forzamos la bienvenida aunque haya perfil guardado.
     if st.session_state.get("_force_bienv"):
         return True
-    # Si ya hizo onboarding antes (nombre guardado), entra directo.
+    # Con cuentas reales SIEMPRE hay que iniciar sesión: sin ella no sabemos de
+    # quién son los datos, y entrar directo mostraría los de alguien más.
+    if auth_supabase.disponible():
+        return True
+    # Modo local (sin nube): si ya hizo onboarding antes, entra directo.
     perfil = db_utils.get_perfil()
     if perfil.get("nombre"):
         st.session_state["_entro"] = True
@@ -68,8 +83,10 @@ def necesita_bienvenida() -> bool:
 
 def cerrar_sesion():
     """Vuelve a la pantalla de bienvenida (cierra la sesión actual)."""
-    for k in ("_entro", "_login_google", "usuario_email"):
+    for k in ("_entro", "_login_google", "usuario_email", "usuario_id",
+              "usuario_nombre", "usuario_riesgo"):
         st.session_state.pop(k, None)
+    db_utils.set_usuario("local")
     st.session_state["_force_bienv"] = True
     st.session_state["_fase_bienv"] = "login"
     st.rerun()
@@ -148,6 +165,73 @@ def render_bienvenida():
         _fase_datos()
 
 
+def _iniciar_sesion_usuario(user_id: str, email: str):
+    """Deja al usuario 'dentro': desde aquí, la app solo verá SUS datos."""
+    st.session_state["usuario_id"] = user_id
+    st.session_state["usuario_email"] = email
+    db_utils.set_usuario(user_id)
+    perfil = db_utils.get_perfil()
+    if perfil.get("nombre"):
+        _entrar_al_dashboard(perfil.get("nombre"), perfil.get("perfil_riesgo"))
+    else:
+        st.session_state["_fase_bienv"] = "datos"   # cuenta nueva: pedir perfil
+        st.rerun()
+
+
+def _formulario_cuenta():
+    """Entrar o registrarse con correo y contraseña (Supabase Auth)."""
+    entrar_tab, crear_tab = st.tabs(["Iniciar sesión", "Crear mi cuenta"])
+
+    with entrar_tab:
+        with st.form("form_entrar"):
+            email = st.text_input("Correo", key="li_email", placeholder="tu@correo.com")
+            pwd = st.text_input("Contraseña", type="password", key="li_pwd")
+            ok = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+        if ok:
+            if not email or not pwd:
+                st.warning("Escribe tu correo y tu contraseña.")
+            else:
+                with st.spinner("Entrando…"):
+                    r = auth_supabase.entrar(email, pwd)
+                if r["ok"]:
+                    _iniciar_sesion_usuario(r["user_id"], r["email"])
+                else:
+                    st.error(r["msg"])
+        if st.button("Olvidé mi contraseña", key="li_olvide"):
+            correo = st.session_state.get("li_email", "").strip()
+            if not correo:
+                st.warning("Escribe tu correo arriba y vuelve a pulsar.")
+            else:
+                auth_supabase.recuperar_password(correo)
+                # Respuesta igual exista o no la cuenta: así no se revela quién está registrado.
+                st.info(f"Si {correo} tiene cuenta, te llegará un correo para restablecerla.")
+
+    with crear_tab:
+        with st.form("form_crear"):
+            email_n = st.text_input("Correo", key="su_email", placeholder="tu@correo.com")
+            pwd_n = st.text_input("Contraseña", type="password", key="su_pwd",
+                                  help="Mínimo 6 caracteres.")
+            pwd_n2 = st.text_input("Repite tu contraseña", type="password", key="su_pwd2")
+            ok_n = st.form_submit_button("Crear cuenta", type="primary", use_container_width=True)
+        if ok_n:
+            if not email_n or not pwd_n:
+                st.warning("Escribe tu correo y una contraseña.")
+            elif pwd_n != pwd_n2:
+                st.warning("Las contraseñas no coinciden.")
+            elif len(pwd_n) < 6:
+                st.warning("Usa al menos 6 caracteres.")
+            else:
+                with st.spinner("Creando tu cuenta…"):
+                    r = auth_supabase.registrar(email_n, pwd_n)
+                if not r["ok"]:
+                    st.error(r["msg"])
+                elif r["necesita_confirmar"]:
+                    st.success("✅ Cuenta creada. Revisa tu correo para confirmarla "
+                               "y luego inicia sesión.")
+                else:
+                    _iniciar_sesion_usuario(r["user_id"], r["email"])
+
+
 def _fase_login():
     # Logo oficial (imagen) o SVG de respaldo si el archivo no está.
     if _LOGO_PATH.exists():
@@ -169,29 +253,35 @@ def _fase_login():
         'Estrategias claras. Decisiones inteligentes.<br>Patrimonio a largo plazo.</div>',
         unsafe_allow_html=True)
 
-    # Acción primaria: crear tu cuenta/perfil.
-    if st.button("Crear mi cuenta", key="btn_crear", use_container_width=True):
-        st.session_state["_fase_bienv"] = "datos"
-        st.rerun()
+    # Cuenta real (correo + contraseña) cuando hay Supabase configurado.
+    if auth_supabase.disponible():
+        _formulario_cuenta()
+        st.markdown('<div class="bienv-or"><span>o</span></div>', unsafe_allow_html=True)
+    else:
+        # Sin nube configurada: modo local de un solo usuario (para desarrollar).
+        if st.button("Crear mi cuenta", key="btn_crear", use_container_width=True):
+            st.session_state["_fase_bienv"] = "datos"
+            st.rerun()
+        st.markdown('<div class="bienv-or"><span>o</span></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="bienv-or"><span>o</span></div>', unsafe_allow_html=True)
-
-    # Acción secundaria: continuar con Google (también conecta el calendario).
-    if st.button("Continuar con Google", key="btn_google_login", use_container_width=True):
-        with st.spinner("Abriendo Google en tu navegador..."):
-            info = auth_utils.login_google()
-        if info is not None:
-            st.session_state["usuario_email"] = info.get("email", "")
-            st.session_state["_login_google"] = True
-            perfil = db_utils.get_perfil()
-            if perfil.get("nombre"):
-                # Ya tiene perfil → directo al dashboard, sin volver a preguntar.
-                _entrar_al_dashboard(perfil.get("nombre"), perfil.get("perfil_riesgo"))
-            else:
-                # Usuario nuevo → completar perfil (nombre precargado de Google).
-                st.session_state["usuario_nombre"] = info.get("nombre", "")
-                st.session_state["_fase_bienv"] = "datos"
-                st.rerun()
+    # Google: solo en modo LOCAL. Con cuentas reales queda deshabilitado porque
+    # su flujo actual (navegador de escritorio) no produce un usuario_id de
+    # Supabase; sin ese id, la sesión caería en el usuario "local" y vería datos
+    # que no son suyos. Integrarlo bien es "Google OAuth vía Supabase" (pendiente).
+    if not auth_supabase.disponible():
+        if st.button("Continuar con Google", key="btn_google_login", use_container_width=True):
+            with st.spinner("Abriendo Google en tu navegador..."):
+                info = auth_utils.login_google()
+            if info is not None:
+                st.session_state["usuario_email"] = info.get("email", "")
+                st.session_state["_login_google"] = True
+                perfil = db_utils.get_perfil()
+                if perfil.get("nombre"):
+                    _entrar_al_dashboard(perfil.get("nombre"), perfil.get("perfil_riesgo"))
+                else:
+                    st.session_state["usuario_nombre"] = info.get("nombre", "")
+                    st.session_state["_fase_bienv"] = "datos"
+                    st.rerun()
 
     st.markdown("""
     <div style="display:flex;align-items:center;justify-content:center;gap:7px;margin-top:26px;">

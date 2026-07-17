@@ -13,7 +13,8 @@ from modules.objetivos import render_objetivos
 from modules.fibras import render_fibras
 from modules.copytrading import render_copytrading
 from modules.aprende import render_aprende
-from modules.bienvenida import necesita_bienvenida, render_bienvenida
+from modules.bienvenida import (necesita_bienvenida, render_bienvenida,
+                                aplicar_usuario_de_sesion)
 
 # Ícono/favicon de la app: el logo VestPlan (con respaldo a emoji si falta).
 _ICONO = Path(__file__).parent / "assets" / "vestplan_icon.png"
@@ -330,6 +331,11 @@ with st.container(key="dpfix"):
 """,
         height=0,
     )
+
+# De quién son los datos de ESTA sesión. Va antes que cualquier lectura: db_utils
+# guarda al usuario en una variable del proceso, compartida por todas las sesiones
+# abiertas, así que hay que fijarlo en cada ejecución del script.
+aplicar_usuario_de_sesion()
 
 # Compuerta de bienvenida: login con Google o invitado + datos básicos.
 # Mientras no haya entrado, mostramos la bienvenida y detenemos el resto.
