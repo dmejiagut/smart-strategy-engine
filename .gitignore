@@ -21,7 +21,10 @@ __pycache__/
 Thumbs.db
 
 # ===== Carpeta interna de Claude =====
-.claude/
+# Se ignora la config personal, PERO la skill sí se entrega (es parte del proyecto).
+.claude/*
+!.claude/skills/
+.claude/skills/**/__pycache__/
 
 # ===== Logs temporales =====
 *.log
