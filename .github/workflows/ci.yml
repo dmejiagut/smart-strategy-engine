@@ -1,0 +1,35 @@
+name: CI
+
+# Red de seguridad: en cada push a main (y en cada Pull Request) compila todo y
+# renderiza TODAS las vistas de la app. Si algo truena, GitHub avisa antes de que
+# el error llegue a los usuarios.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:        # permite correrlo a mano desde la pestaña Actions
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"      # la misma versión que usa Streamlit Cloud
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compilar todo el proyecto
+        run: python -m compileall -q app.py modules utils tests
+
+      - name: Renderizar todas las vistas (pruebas de humo)
+        run: python tests/smoke.py
